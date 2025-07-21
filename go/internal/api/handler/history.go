@@ -220,7 +220,6 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	fullContent := ""
 	ctx := c.Request.Context()
 
 	for {
@@ -240,7 +239,6 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 				return
 			}
 			// 发送内容片段
-			fullContent += content
 			data, _ := json.Marshal(map[string]string{"content": content})
 			c.Writer.WriteString(fmt.Sprintf("data: %s\n\n", data))
 			c.Writer.(http.Flusher).Flush()
