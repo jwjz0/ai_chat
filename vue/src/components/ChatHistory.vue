@@ -1,6 +1,5 @@
 <template>
   <div class="block block-2">
-    <!-- 固定头部 -->
     <div class="history-header sticky-header">
       <h3>
         {{ assistant ? assistant.name + ' 的对话' : '历史对话' }}
@@ -16,7 +15,6 @@
       </div>
     </div>
     
-    <!-- 滚动内容区 -->
     <div class="history-scroll-container">
       <div v-if="assistant" class="history-stats">
         消息数: {{ messages?.length || 0 }} | 
@@ -42,7 +40,6 @@
           >
             <div class="message-time">{{ msg.gmt_create }}</div>
             
-            <!-- 用户消息（右侧） -->
             <div v-if="msg.input.send" class="user-message-container">
               <div class="message-content-wrapper">
                 <div class="message-bubble user-bubble">
@@ -51,17 +48,14 @@
                     输入tokens: {{ msg.usage.input_tokens }}
                   </div>
                 </div>
-                <!-- 用户头像 -->
                 <div class="user-avatar">
                   <div class="avatar-image">👤</div>
                 </div>
               </div>
             </div>
             
-            <!-- 助手消息（左侧） -->
             <div v-if="msg.output.content" class="assistant-message-container">
               <div class="message-content-wrapper">
-                <!-- 助手头像 -->
                 <div class="assistant-avatar">
                   <div class="avatar-image">🤖</div>
                 </div>
@@ -92,38 +86,50 @@
         <div v-else-if="assistant" class="empty-state">
           该助手暂无历史对话
         </div>
+
+        <div 
+          v-if="!autoScroll && messages.length > 0" 
+          class="scroll-indicator"
+          @click="scrollToBottom(true)"
+        >
+          <span>有新消息</span>
+          <i class="arrow-down"></i>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 
 const props = defineProps({
-  assistant: {
-    type: Object,
-    default: null
-  },
-  messages: {
-    type: Array,
-    default: () => []
-  },
-  loading: {
-    type: Boolean,
-    default: false
-  },
-  totalTokens: {
-    type: Number,
-    default: 0
-  }
+  assistant: { type: Object, default: null },
+  messages: { type: Array, default: () => [] },
+  loading: { type: Boolean, default: false },
+  totalTokens: { type: Number, default: 0 }
 });
 
 const historyContainer = ref(null);
+const autoScroll = ref(true);
+
+watch(() => props.messages.length, () => {
+  if (historyContainer.value) {
+    const container = historyContainer.value;
+    const scrollBottom = container.scrollHeight - container.scrollTop;
+    autoScroll.value = scrollBottom <= container.clientHeight + 50;
+  }
+});
+
+const scrollToBottom = (force = false) => {
+  if (historyContainer.value) {
+    historyContainer.value.scrollTop = historyContainer.value.scrollHeight;
+    autoScroll.value = true;
+  }
+};
 </script>
 
 <style scoped>
-/* 历史对话区域（方块2）样式 */
 .block-2 {
   flex: 1;
   background-color: transparent;
@@ -133,7 +139,6 @@ const historyContainer = ref(null);
   flex-direction: column;
 }
 
-/* 历史对话固定头部 */
 .sticky-header {
   position: sticky;
   top: 0;
@@ -185,7 +190,6 @@ const historyContainer = ref(null);
   cursor: not-allowed;
 }
 
-/* 历史对话滚动内容区 */
 .history-scroll-container {
   flex: 1;
   overflow-y: auto;
@@ -205,14 +209,13 @@ const historyContainer = ref(null);
   position: relative;
 }
 
-/* 历史对话滚动条 - 一直隐藏 */
 .history-scroll-container {
-  -ms-overflow-style: none;  /* IE和Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .history-scroll-container::-webkit-scrollbar {
-  display: none;  /* 所有浏览器隐藏 */
+  display: none;
 }
 
 .loading-state {
@@ -231,10 +234,6 @@ const historyContainer = ref(null);
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 .message-item {
   margin-bottom: 20px;
   position: relative;
@@ -248,14 +247,12 @@ const historyContainer = ref(null);
   font-weight: 500;
 }
 
-/* 用户消息容器 */
 .user-message-container {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 12px;
 }
 
-/* 助手消息容器 */
 .assistant-message-container {
   display: flex;
   justify-content: flex-start;
@@ -264,7 +261,7 @@ const historyContainer = ref(null);
 
 .message-content-wrapper {
   display: flex;
-  align-items: flex-start; /* 头像与气泡顶部对齐 */
+  align-items: flex-start;
   gap: 12px;
   max-width: 85%;
 }
@@ -325,12 +322,11 @@ const historyContainer = ref(null);
   margin: 20px 0;
 }
 
-/* 头像样式 */
 .user-avatar, .assistant-avatar {
   width: 36px;
   height: 36px;
   flex-shrink: 0;
-  margin-top: 4px; /* 微调位置，与气泡更协调 */
+  margin-top: 4px;
 }
 
 .avatar-image {
@@ -354,7 +350,6 @@ const historyContainer = ref(null);
   color: white;
 }
 
-/* 打字机动画 */
 .typing-indicator {
   display: inline-flex;
   gap: 4px;
@@ -373,8 +368,39 @@ const historyContainer = ref(null);
 .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
 .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
 
-@keyframes wave {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+.scroll-indicator {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  background-color: #3498db;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
+}
+
+.scroll-indicator:hover {
+  background-color: #2980b9;
+}
+
+.scroll-indicator.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.arrow-down {
+  width: 0; 
+  height: 0; 
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid white;
 }
 </style>

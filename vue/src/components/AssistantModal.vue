@@ -56,15 +56,11 @@
 
 <script setup>
 import { ref, watch } from 'vue';
-import { defineProps, defineEmits } from 'vue';
 
 const props = defineProps({
-  visible: {
-    type: Boolean,
-    default: false
-  },
-  assistant: {
-    type: Object,
+  visible: { type: Boolean, default: false },
+  assistant: { 
+    type: Object, 
     default: () => ({
       id: '',
       name: '',
@@ -78,7 +74,6 @@ const emit = defineEmits(['close', 'save']);
 
 const localAssistant = ref({ ...props.assistant });
 
-// 监听外部assistant变化，同步到本地
 watch(() => props.assistant, (newVal) => {
   localAssistant.value = { ...newVal };
 });
@@ -89,7 +84,6 @@ const handleSave = () => {
 </script>
 
 <style scoped>
-/* 模态框样式 */
 .modal-overlay {
   position: fixed;
   top: 0;

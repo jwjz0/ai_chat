@@ -2,20 +2,21 @@
   <div class="block block-3">
     <div class="input-container">
       <textarea
+        ref="textareaRef"
         :value="input"
         class="user-input"
         placeholder="请输入消息... (Enter发送, Shift+Enter换行)"
-        @input="$emit('input-change', $event.target.value)"
-        @keydown.enter.prevent="$emit('keydown', $event)"
+        @input="handleInput"
+        @keydown.enter="handleKeydown($event)"
         :disabled="disabled"
       ></textarea>
       <button 
         class="send-btn" 
         @click="$emit('send')"
         :disabled="!input.trim() || disabled"
-        :title="sending ? '发送中...' : '发送消息'"
+        :title="sending ? '停止回答' : '发送消息'"
       >
-        <span v-if="sending" class="loading-spinner">↑</span>
+        <span v-if="sending" class="loading-spinner">✖</span>
         <span v-else>↑</span>
       </button>
     </div>
@@ -23,30 +24,67 @@
 </template>
 
 <script setup>
-import { defineProps } from 'vue';
+import { ref, nextTick, watch } from 'vue';
 
 const props = defineProps({
-  input: {
-    type: String,
-    default: ''
-  },
-  disabled: {
-    type: Boolean,
-    default: false
-  },
-  sending: {
-    type: Boolean,
-    default: false
+  input: { type: String, default: '' },
+  disabled: { type: Boolean, default: false },
+  sending: { type: Boolean, default: false }
+});
+
+const emit = defineEmits(['input-change', 'send', 'keydown']);
+const textareaRef = ref(null);
+
+// 处理输入事件，动态调整高度
+const handleInput = (e) => {
+  emit('input-change', e.target.value);
+  adjustTextareaHeight();
+};
+
+// 处理回车键事件
+const handleKeydown = (e) => {
+  e.preventDefault();
+  
+  if (e.shiftKey) {
+    const cursorPos = e.target.selectionStart;
+    const newInput = props.input.substring(0, cursorPos) + '\n' + props.input.substring(cursorPos);
+    emit('input-change', newInput);
+    // 调整光标位置
+    nextTick(() => {
+      e.target.selectionStart = e.target.selectionEnd = cursorPos + 1;
+      adjustTextareaHeight();
+    });
+  } else {
+    emit('send');
   }
+};
+
+// 动态调整文本框高度
+const adjustTextareaHeight = () => {
+  if (!textareaRef.value) return;
+  
+  // 重置高度获取正确滚动高度
+  textareaRef.value.style.height = 'auto';
+  const scrollHeight = textareaRef.value.scrollHeight;
+  
+  // 限制最小和最大高度
+  const minHeight = 58;
+  const maxHeight = 160;
+  textareaRef.value.style.height = `${Math.min(Math.max(scrollHeight, minHeight), maxHeight)}px`;
+};
+
+// 监听输入值变化调整高度
+watch(() => props.input, () => {
+  nextTick(adjustTextareaHeight);
 });
 </script>
 
 <style scoped>
-/* 输入区（方块3）样式优化 */
+/* 保持与原始样式一致 */
 .block-3 {
   flex: none;
   background-color: transparent;
-  padding: 20px 0;
+  padding: 0 0 20px 0;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -65,7 +103,7 @@ const props = defineProps({
   border: 1px solid #d1d5db;
   border-radius: 28px;
   resize: none;
-  font-size: 15px;
+  font-size: 16px;
   min-height: 58px;
   max-height: 160px;
   line-height: 1.6;
@@ -73,6 +111,14 @@ const props = defineProps({
   transition: all 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   background-color: white;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  
+  /* 隐藏滚动条 */
+  overflow: hidden;
+}
+
+.user-input::-webkit-scrollbar {
+  display: none;
 }
 
 .user-input:focus {
@@ -83,11 +129,10 @@ const props = defineProps({
 
 .user-input::placeholder {
   color: #94a3b8;
-  font-size: 14px;
+  font-size: 15px;
   opacity: 0.8;
 }
 
-/* 发送按钮 - 小、粗、实心箭头 */
 .send-btn {
   position: absolute;
   bottom: 12px;
@@ -108,9 +153,8 @@ const props = defineProps({
   z-index: 10;
   font-weight: bold;
   
-  /* 箭头位置调整 */
-  line-height: 30px;  /* 减小行高使箭头整体上移 */
-  padding-bottom: 4px;  /* 底部增加内边距 */
+  line-height: 30px;
+  padding-bottom: 4px;
 }
 
 .send-btn:enabled:hover {
@@ -131,7 +175,6 @@ const props = defineProps({
   animation: spin 1s linear infinite;
 }
 
-/* 发送按钮箭头动画 */
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
