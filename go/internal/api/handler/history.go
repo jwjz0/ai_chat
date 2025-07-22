@@ -24,10 +24,18 @@ func NewHistoryHandler(historyService service.HistoryService) *HistoryHandler {
 func (h *HistoryHandler) SelectByAssistantID(c *gin.Context) {
 	assistantID := c.Param("assistant_id")
 	if assistantID == "" {
-		c.JSON(http.StatusOK, model.Result{
+		c.JSON(http.StatusBadRequest, model.Result{
 			Success: false,
 			Msg:     "助手ID不能为空",
-			Code:    http.StatusBadRequest,
+			Data:    nil,
+		})
+		return
+	}
+
+	if !isValidUUID(assistantID) {
+		c.JSON(http.StatusBadRequest, model.Result{
+			Success: false,
+			Msg:     "助手ID格式不正确",
 			Data:    nil,
 		})
 		return
@@ -35,11 +43,9 @@ func (h *HistoryHandler) SelectByAssistantID(c *gin.Context) {
 
 	history, err := h.historyService.SelectByAssistantID(c.Request.Context(), assistantID)
 	if err != nil {
-		log.Printf("查询历史记录失败: %v", err)
-		c.JSON(http.StatusOK, model.Result{
+		c.JSON(http.StatusInternalServerError, model.Result{
 			Success: false,
 			Msg:     err.Error(),
-			Code:    http.StatusInternalServerError,
 			Data:    nil,
 		})
 		return
@@ -48,7 +54,6 @@ func (h *HistoryHandler) SelectByAssistantID(c *gin.Context) {
 	c.JSON(http.StatusOK, model.Result{
 		Success: true,
 		Msg:     "查询成功",
-		Code:    http.StatusOK,
 		Data:    history,
 	})
 }
@@ -56,29 +61,35 @@ func (h *HistoryHandler) SelectByAssistantID(c *gin.Context) {
 func (h *HistoryHandler) ResetByAssistantID(c *gin.Context) {
 	assistantID := c.Param("assistant_id")
 	if assistantID == "" {
-		c.JSON(http.StatusOK, model.Result{
+		c.JSON(http.StatusBadRequest, model.Result{
 			Success: false,
 			Msg:     "助手ID不能为空",
-			Code:    http.StatusBadRequest,
+			Data:    nil,
+		})
+		return
+	}
+
+	if !isValidUUID(assistantID) {
+		c.JSON(http.StatusBadRequest, model.Result{
+			Success: false,
+			Msg:     "助手ID格式不正确",
 			Data:    nil,
 		})
 		return
 	}
 
 	if err := h.historyService.ResetByAssistantID(c.Request.Context(), assistantID); err != nil {
-		c.JSON(http.StatusOK, model.Result{
+		c.JSON(http.StatusInternalServerError, model.Result{
 			Success: false,
-			Msg:     "重置对话失败: " + err.Error(),
-			Code:    http.StatusInternalServerError,
+			Msg:     err.Error(),
 			Data:    nil,
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, model.Result{
+	c.JSON(http.StatusNoContent, model.Result{
 		Success: true,
 		Msg:     "对话已重置",
-		Code:    http.StatusOK,
 		Data:    nil,
 	})
 }
@@ -86,10 +97,18 @@ func (h *HistoryHandler) ResetByAssistantID(c *gin.Context) {
 func (h *HistoryHandler) SaveByAssistantID(c *gin.Context) {
 	assistantID := c.Param("assistant_id")
 	if assistantID == "" {
-		c.JSON(http.StatusOK, model.Result{
+		c.JSON(http.StatusBadRequest, model.Result{
 			Success: false,
 			Msg:     "助手ID不能为空",
-			Code:    http.StatusBadRequest,
+			Data:    nil,
+		})
+		return
+	}
+
+	if !isValidUUID(assistantID) {
+		c.JSON(http.StatusBadRequest, model.Result{
+			Success: false,
+			Msg:     "助手ID格式不正确",
 			Data:    nil,
 		})
 		return
@@ -101,10 +120,9 @@ func (h *HistoryHandler) SaveByAssistantID(c *gin.Context) {
 		Usage  model.Usage
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, model.Result{
+		c.JSON(http.StatusBadRequest, model.Result{
 			Success: false,
 			Msg:     "消息格式错误",
-			Code:    http.StatusBadRequest,
 			Data:    nil,
 		})
 		return
@@ -118,62 +136,17 @@ func (h *HistoryHandler) SaveByAssistantID(c *gin.Context) {
 	}
 
 	if err := h.historyService.SaveByAssistantID(c.Request.Context(), assistantID, message); err != nil {
-		c.JSON(http.StatusOK, model.Result{
+		c.JSON(http.StatusInternalServerError, model.Result{
 			Success: false,
-			Msg:     "保存消息失败: " + err.Error(),
-			Code:    http.StatusInternalServerError,
+			Msg:     err.Error(),
 			Data:    nil,
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, model.Result{
+	c.JSON(http.StatusCreated, model.Result{
 		Success: true,
 		Msg:     "消息添加成功",
-		Code:    http.StatusOK,
-		Data:    message,
-	})
-}
-
-func (h *HistoryHandler) ProcessMessage(c *gin.Context) {
-	assistantID := c.Param("assistant_id")
-	if assistantID == "" {
-		c.JSON(http.StatusOK, model.Result{
-			Success: false,
-			Msg:     "助手ID不能为空",
-			Code:    http.StatusBadRequest,
-			Data:    nil,
-		})
-		return
-	}
-
-	var input model.Input
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusOK, model.Result{
-			Success: false,
-			Msg:     "消息格式错误",
-			Code:    http.StatusBadRequest,
-			Data:    nil,
-		})
-		return
-	}
-
-	message, err := h.historyService.ProcessMessage(c.Request.Context(), assistantID, input)
-	if err != nil {
-		log.Printf("处理消息失败: %v", err)
-		c.JSON(http.StatusOK, model.Result{
-			Success: false,
-			Msg:     "处理消息失败: " + err.Error(),
-			Code:    http.StatusInternalServerError,
-			Data:    nil,
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, model.Result{
-		Success: true,
-		Msg:     "消息处理成功",
-		Code:    http.StatusOK,
 		Data:    message,
 	})
 }
@@ -184,7 +157,6 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.Result{
 			Success: false,
 			Msg:     "助手ID不能为空",
-			Code:    http.StatusBadRequest,
 		})
 		return
 	}
@@ -194,7 +166,6 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.Result{
 			Success: false,
 			Msg:     "消息格式错误: " + err.Error(),
-			Code:    http.StatusBadRequest,
 		})
 		return
 	}

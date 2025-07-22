@@ -38,7 +38,7 @@ func SetupRouter(assistantHandler *handler.AssistantHandler, historyHandler *han
 		apiV1a.GET("", assistantHandler.SelectAll)
 		apiV1a.DELETE("/:id", assistantHandler.DeleteByID)
 		apiV1a.POST("", assistantHandler.Save)
-		apiV1a.PUT("/:id", assistantHandler.UpdateByID)
+		apiV1a.PATCH("/:id", assistantHandler.UpdateByID)
 	}
 
 	apiV1h := r.Group("/api/voice-robot/v1/history")
