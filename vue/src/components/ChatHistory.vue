@@ -33,12 +33,13 @@
         
         <div v-else-if="messages && messages.length">
           <div 
-            v-for="(msg, index) in messages" 
-            :key="index" 
+            v-for="msg in messages" 
+            :key="msg.id" 
             class="message-item"
-            :id="'msg-' + index"
+            :id="'msg-' + msg.id"
           >
-            <div class="message-time">{{ msg.gmt_create }}</div>
+            <!-- 只显示有gmt_create的消息时间 -->
+            <div v-if="msg.gmt_create" class="message-time">{{ formatDateTime(msg.gmt_create) }}</div>
             
             <div v-if="msg.input.send" class="user-message-container">
               <div class="message-content-wrapper">
@@ -113,6 +114,15 @@ const props = defineProps({
 const historyContainer = ref(null);
 const autoScroll = ref(true);
 
+// 格式化日期时间
+const formatDateTime = (dateTime) => {
+  if (!dateTime) return '';
+  const date = new Date(dateTime);
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  return `${date.toLocaleDateString()} ${hours}:${minutes}`;
+};
+
 watch(() => props.messages.length, () => {
   if (historyContainer.value) {
     const container = historyContainer.value;
@@ -130,6 +140,7 @@ const scrollToBottom = (force = false) => {
 </script>
 
 <style scoped>
+/* 样式保持不变 */
 .block-2 {
   flex: 1;
   background-color: transparent;
@@ -402,5 +413,15 @@ const scrollToBottom = (force = false) => {
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-top: 6px solid white;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes wave {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-5px); }
 }
 </style>
