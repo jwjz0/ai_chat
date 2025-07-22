@@ -12,11 +12,11 @@
       ></textarea>
       <button 
         class="send-btn" 
-        @click="$emit('send')"
-        :disabled="!input.trim() || disabled"
+        @click="handleButtonClick"
+        :disabled="(sending ? false : !input.trim()) || baseDisabled"
         :title="sending ? '停止回答' : '发送消息'"
       >
-        <span v-if="sending" class="loading-spinner">✖</span>
+        <span v-if="sending" class="stop-icon">✖</span>
         <span v-else>↑</span>
       </button>
     </div>
@@ -28,20 +28,27 @@ import { ref, nextTick, watch } from 'vue';
 
 const props = defineProps({
   input: { type: String, default: '' },
-  disabled: { type: Boolean, default: false },
+  baseDisabled: { type: Boolean, default: false },
   sending: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['input-change', 'send', 'keydown']);
+const emit = defineEmits(['input-change', 'send', 'stop', 'keydown']);
 const textareaRef = ref(null);
 
-// 处理输入事件，动态调整高度
+const handleButtonClick = () => {
+  console.log('按钮点击，sending状态：', props.sending);
+  if (props.sending) {
+    emit('stop');
+  } else {
+    emit('send');
+  }
+};
+
 const handleInput = (e) => {
   emit('input-change', e.target.value);
   adjustTextareaHeight();
 };
 
-// 处理回车键事件
 const handleKeydown = (e) => {
   e.preventDefault();
   
@@ -49,7 +56,6 @@ const handleKeydown = (e) => {
     const cursorPos = e.target.selectionStart;
     const newInput = props.input.substring(0, cursorPos) + '\n' + props.input.substring(cursorPos);
     emit('input-change', newInput);
-    // 调整光标位置
     nextTick(() => {
       e.target.selectionStart = e.target.selectionEnd = cursorPos + 1;
       adjustTextareaHeight();
@@ -59,28 +65,22 @@ const handleKeydown = (e) => {
   }
 };
 
-// 动态调整文本框高度
 const adjustTextareaHeight = () => {
   if (!textareaRef.value) return;
   
-  // 重置高度获取正确滚动高度
   textareaRef.value.style.height = 'auto';
   const scrollHeight = textareaRef.value.scrollHeight;
-  
-  // 限制最小和最大高度
   const minHeight = 58;
   const maxHeight = 160;
   textareaRef.value.style.height = `${Math.min(Math.max(scrollHeight, minHeight), maxHeight)}px`;
 };
 
-// 监听输入值变化调整高度
 watch(() => props.input, () => {
   nextTick(adjustTextareaHeight);
 });
 </script>
 
 <style scoped>
-/* 保持与原始样式一致 */
 .block-3 {
   flex: none;
   background-color: transparent;
@@ -112,8 +112,6 @@ watch(() => props.input, () => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   background-color: white;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  
-  /* 隐藏滚动条 */
   overflow: hidden;
 }
 
@@ -143,8 +141,7 @@ watch(() => props.input, () => {
   color: white;
   border: none;
   border-radius: 50%;
-  cursor: pointer;
-  font-size: 25px;
+  font-size: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -152,31 +149,21 @@ watch(() => props.input, () => {
   box-shadow: 0 2px 5px rgba(52, 152, 219, 0.2);
   z-index: 10;
   font-weight: bold;
-  
   line-height: 30px;
-  padding-bottom: 4px;
+  padding-bottom: 0;
+  cursor: pointer;
 }
 
-.send-btn:enabled:hover {
-  background-color: #2980b9;
+.send-btn:not(:disabled):hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(52, 152, 219, 0.25);
 }
 
+/* 移除了X按钮悬停时的红色圆形背景 */
 .send-btn:disabled {
   background-color: #cbd5e1;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
-}
-
-.loading-spinner {
-  display: inline-block;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 </style>

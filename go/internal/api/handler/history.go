@@ -4,6 +4,7 @@ import (
 	"Voice_Assistant/internal/model"
 	"Voice_Assistant/internal/service"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -177,7 +178,6 @@ func (h *HistoryHandler) ProcessMessage(c *gin.Context) {
 	})
 }
 
-// StreamProcessMessage 流式处理消息（修复空指针和done信号）
 func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 	assistantID := c.Param("assistant_id")
 	if assistantID == "" {
@@ -199,7 +199,6 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 		return
 	}
 
-	// 设置SSE响应头（关键：禁用缓冲，确保实时性）
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
@@ -207,7 +206,6 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 	c.Status(http.StatusOK)
 	c.Writer.(http.Flusher).Flush()
 
-	// 获取流式通道
 	contentChan, errChan, usage, err := h.historyService.StreamProcessMessage(c.Request.Context(), assistantID, input)
 	if err != nil {
 		log.Printf("handler调用服务失败: %v", err)
@@ -216,7 +214,6 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 		return
 	}
 
-	// 心跳包防止连接超时
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -225,11 +222,10 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			// 用户取消请求，正常退出
+			// 客户端主动中止请求，服务层会处理保存逻辑
 			return
 		case content, ok := <-contentChan:
 			if !ok {
-				// 内容通道关闭，发送done信号（必发，确保前端收到）
 				doneData, _ := json.Marshal(map[string]interface{}{
 					"done":  true,
 					"usage": usage,
@@ -238,23 +234,23 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 				c.Writer.(http.Flusher).Flush()
 				return
 			}
-			// 发送内容片段
 			data, _ := json.Marshal(map[string]string{"content": content})
 			c.Writer.WriteString(fmt.Sprintf("data: %s\n\n", data))
 			c.Writer.(http.Flusher).Flush()
 		case err := <-errChan:
-			// 关键修复：先检查err是否为nil，避免空指针
 			if err == nil {
 				log.Printf("回答结束")
 				return
 			}
-			// 发送错误信息
+			// 区分上下文取消错误，此时服务层已保存内容
+			if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+				return
+			}
 			data, _ := json.Marshal(map[string]string{"error": err.Error()})
 			c.Writer.WriteString(fmt.Sprintf("data: %s\n\n", data))
 			c.Writer.(http.Flusher).Flush()
 			return
 		case <-ticker.C:
-			// 发送心跳包，保持连接
 			c.Writer.WriteString("data: {\"heartbeat\": true}\n\n")
 			c.Writer.(http.Flusher).Flush()
 		}

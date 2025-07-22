@@ -147,19 +147,17 @@ func (s *llmServiceImpl) GenerateReply(ctx context.Context, prompt string, input
 	return output, usage, nil
 }
 
-// 修改 llmServiceImpl 的 StreamGenerate 方法参数
 func (s *llmServiceImpl) StreamGenerate(ctx context.Context, messages []message) (<-chan string, <-chan error) {
-	contentChan := make(chan string) // 无缓冲通道，确保实时发送
+	contentChan := make(chan string)
 	errChan := make(chan error, 1)
 
 	go func() {
 		defer close(contentChan)
 		defer close(errChan)
 
-		// 构建包含历史消息的请求体
 		reqBody := chatRequest{
 			Model:     s.modelName,
-			Messages:  messages, // 直接使用传入的完整消息链（含历史）
+			Messages:  messages,
 			MaxTokens: s.maxTokens,
 			Stream:    true,
 		}
@@ -193,16 +191,25 @@ func (s *llmServiceImpl) StreamGenerate(ctx context.Context, messages []message)
 		}
 
 		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 大缓冲区确保片段完整
+		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
 		for scanner.Scan() {
+			// 检查是否已中止
+			select {
+			case <-ctx.Done():
+				resp.Body.Close() // 关闭响应体，停止接收新数据
+				errChan <- ctx.Err()
+				return
+			default:
+			}
+
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" {
 				continue
 			}
 
 			if line == "data: [DONE]" {
-				break // 结束标记，不发送内容
+				break
 			}
 
 			if strings.HasPrefix(line, "data: ") {

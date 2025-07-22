@@ -24,10 +24,11 @@
         
         <MessageInput 
           :input="userInput"
-          :disabled="!selectedAssistantId || sending"
+          :base-disabled="!selectedAssistantId"
           :sending="sending"
           @input-change="userInput = $event"
           @send="sendMessage"
+          @stop="stopMessage"
           @keydown="handleKeydown"
         />
       </div>
@@ -133,7 +134,6 @@ const handleSelectAssistant = async (assistant) => {
     const res = await historyApi.getByAssistantId(assistant.id)
     historyData.messages = res.data?.messages || res.messages || []
     await nextTick()
-    // 确保DOM更新后再滚动
     setTimeout(() => {
       scrollToBottom(true)
     }, 100)
@@ -220,6 +220,7 @@ const handleResetHistory = async () => {
 }
 
 const sendMessage = async () => {
+  // 验证输入
   if (!selectedAssistantId.value) {
     alert('请先从左侧选择一个助手');
     return;
@@ -228,8 +229,11 @@ const sendMessage = async () => {
   const inputText = userInput.value.trim();
   if (!inputText) return;
   
+  // 立即清空输入框并更新发送状态
+  userInput.value = '';
   sending.value = true;
   
+  // 获取当前选中的助手信息
   const currentAssist = assistants.value.find(a => a.id === selectedAssistantId.value);
   if (!currentAssist) {
     alert('未找到当前助手信息');
@@ -237,6 +241,7 @@ const sendMessage = async () => {
     return;
   }
   
+  // 添加用户消息到历史记录
   const userMessage = {
     input: { prompt: currentAssist.prompt, send: inputText },
     output: { content: '' },
@@ -246,6 +251,7 @@ const sendMessage = async () => {
   historyData.messages.push(userMessage);
   await scrollToBottom(true);
   
+  // 添加加载中的消息占位符
   const loadingMessage = {
     input: { prompt: '', send: '' },
     output: { content: '' },
@@ -256,43 +262,69 @@ const sendMessage = async () => {
   historyData.messages.push(loadingMessage);
   await scrollToBottom(true);
 
+  // 用于累积流式响应内容
   let fullContent = '';
-
+  
+  // 调用API发起流式请求
   streamController.value = historyApi.streamProcessMessage(
     selectedAssistantId.value,
     { prompt: currentAssist.prompt, send: inputText },
-    async (content) => {
+    
+    // 处理流式响应内容
+    (content) => {
       fullContent += content;
       
+      // 更新消息内容和状态
       historyData.messages[historyData.messages.length - 1] = {
         ...loadingMessage,
         output: { content: fullContent },
         isLoading: true
       };
       
-      await nextTick();
+      // 自动滚动到底部
+      nextTick(() => {
+        if (autoScroll.value) {
+          scrollToBottom();
+        }
+      });
+    },
+    
+    // 处理错误（包括中止）
+    (errorMsg, options = {}) => {
+      console.log('流式请求错误:', errorMsg, options);
       
-      if (autoScroll.value) {
-        scrollToBottom();
+      // 无论如何都结束发送状态
+      sending.value = false;
+      
+      if (options.isAborted) {
+        // 用户主动中止：更新消息为“已中断”
+        historyData.messages[historyData.messages.length - 1] = {
+          ...loadingMessage,
+          output: { content: fullContent + '（已中断）' },
+          isLoading: false
+        };
+      } else {
+        // 其他错误：提示用户并移除加载状态
+        alert(errorMsg);
+        historyData.messages.pop(); // 移除加载中的消息
       }
     },
-    (error) => {
-      console.error('流式请求错误:', error);
-      alert('发送失败: ' + error);
-      historyData.messages.pop();
-      sending.value = false;
-    },
-    async (usage) => {
+    
+    // 处理完成回调
+    (usage) => {
+      // 计算token使用量（示例：简单基于字符数估算）
       const userInputTokens = Math.ceil(inputText.length / 4);
       const assistantOutputTokens = Math.ceil(fullContent.length / 4);
       const totalTokens = userInputTokens + assistantOutputTokens;
 
+      // 更新用户消息的token使用量
       historyData.messages[historyData.messages.length - 2].usage = {
         input_tokens: userInputTokens,
         output_tokens: 0,
         total_tokens: totalTokens
       };
 
+      // 更新助手回复的内容和token使用量
       historyData.messages[historyData.messages.length - 1] = {
         input: { prompt: currentAssist.prompt, send: '' },
         output: { content: fullContent },
@@ -304,87 +336,104 @@ const sendMessage = async () => {
         isLoading: false
       };
 
+      // 强制更新消息数组以触发视图更新
       historyData.messages = [...historyData.messages];
       
-      userInput.value = '';
+      // 结束发送状态
       sending.value = false;
       
-      await scrollToBottom(true);
+      // 滚动到底部
+      nextTick(() => scrollToBottom(true));
     }
   );
-}
+};
 
-const cancelStream = () => {
-  if (streamController.value) {
-    streamController.value.abort()
-    streamController.value = null
-    sending.value = false
-  }
-}
+const stopMessage = () => {
+    console.log('用户点击停止按钮');
+    
+    if (!sending.value || !streamController.value) {
+        console.log('无需中止：sending=', sending.value, 'controller=', streamController.value);
+        return;
+    }
+    
+    // 立即更新状态，防止重复点击
+    sending.value = false;
+    
+    // 调用中止函数
+    try {
+        streamController.value();
+        console.log('已调用中止函数');
+    } catch (err) {
+        console.error('中止函数调用错误:', err);
+    } finally {
+        streamController.value = null;
+    }
+};
 
 const scrollToBottom = async (force = false) => {
-  const historyContainer = document.querySelector('.history-container');
-  if (!historyContainer) return;
+  const historyContainer = document.querySelector('.history-container')
+  if (!historyContainer) return
   
   if (!force) {
-    const scrollBottom = historyContainer.scrollHeight - historyContainer.scrollTop;
-    const isAtBottom = scrollBottom <= historyContainer.clientHeight + 50;
+    const scrollBottom = historyContainer.scrollHeight - historyContainer.scrollTop
+    const isAtBottom = scrollBottom <= historyContainer.clientHeight + 50
     
     if (!isAtBottom) {
-      autoScroll.value = false;
-      return;
+      autoScroll.value = false
+      return
     }
   }
   
-  await nextTick();
+  await nextTick()
   
-  const lastMessage = document.getElementById(`msg-${historyData.messages.length - 1}`);
+  const lastMessage = document.getElementById(`msg-${historyData.messages.length - 1}`)
   if (lastMessage) {
-    lastMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    lastMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   } else {
-    historyContainer.scrollTop = historyContainer.scrollHeight;
+    historyContainer.scrollTop = historyContainer.scrollHeight
   }
   
-  autoScroll.value = true;
+  autoScroll.value = true
 }
 
 // 生命周期
 onMounted(() => {
-  fetchAssistants();
+  fetchAssistants()
   
-  const historyContainer = document.querySelector('.history-container');
+  const historyContainer = document.querySelector('.history-container')
   if (historyContainer) {
     historyContainer.addEventListener('scroll', () => {
-      if (scrollTimeout) clearTimeout(scrollTimeout);
+      if (scrollTimeout) clearTimeout(scrollTimeout)
       
-      isScrolling.value = true;
+      isScrolling.value = true
       
       scrollTimeout = setTimeout(() => {
-        isScrolling.value = false;
+        isScrolling.value = false
         
-        const scrollBottom = historyContainer.scrollHeight - historyContainer.scrollTop;
-        const isAtBottom = scrollBottom <= historyContainer.clientHeight + 50;
+        const scrollBottom = historyContainer.scrollHeight - historyContainer.scrollTop
+        const isAtBottom = scrollBottom <= historyContainer.clientHeight + 50
         
         if (isAtBottom) {
-          autoScroll.value = true;
+          autoScroll.value = true
         }
-      }, 300);
-    });
+      }, 300)
+    })
   }
   
-  // 初始加载时延迟滚动，确保DOM完全渲染
   setTimeout(() => {
-    scrollToBottom(true);
-  }, 300);
-});
+    scrollToBottom(true)
+  }, 300)
+})
 
 onUnmounted(() => {
-  cancelStream()
+  if (streamController.value) {
+    streamController.value.abort()
+  }
 })
 
 watch(() => historyData.messages.length, async () => {
   if (autoScroll.value && !sending.value) {
-    await scrollToBottom();
+    await scrollToBottom()
   }
 })
 </script>
