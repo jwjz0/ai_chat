@@ -12,5 +12,5 @@ export default {
   save: (data) => request.post('/api/voice-robot/v1/assistant', data),
 
   // 根据ID更新助手（data包含需更新的字段）
-  updateById: (id, data) => request.put(`/api/voice-robot/v1/assistant/${id}`, data)
+  updateById: (id, data) => request.patch(`/api/voice-robot/v1/assistant/${id}`, data)
 }

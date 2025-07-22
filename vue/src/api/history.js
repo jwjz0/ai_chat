@@ -13,7 +13,7 @@ export default {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
-        signal: signal, // 传递AbortController的signal
+        signal: signal,
       });
 
       if (!response.ok) {

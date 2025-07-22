@@ -15,7 +15,7 @@ request.interceptors.response.use(
     }
 
     const res = response.data
-    if (res.code !== 200) {
+    if (res.success !== true) {
       console.error('接口错误:', res.message || '请求失败')
       return Promise.reject(new Error(res.message || '请求失败'))
     }
