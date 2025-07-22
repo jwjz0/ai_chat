@@ -1,13 +1,6 @@
 <template>
-  <div 
-    v-if="visible" 
-    class="modal-overlay"
-    @click="$emit('close')"
-  >
-    <div 
-      class="modal-content"
-      @click.stop
-    >
+  <div v-if="visible" class="modal-overlay" @click="$emit('close')">
+    <div class="modal-content" @click.stop>
       <div class="modal-header">
         <h3>{{ assistant.id ? '编辑助手' : '新增助手' }}</h3>
         <button class="close-btn" @click="$emit('close')">×</button>
@@ -72,14 +65,48 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'save']);
 
-const localAssistant = ref({ ...props.assistant });
+const localAssistant = ref({
+  id: '',
+  name: '',
+  description: '',
+  prompt: ''
+});
 
-watch(() => props.assistant, (newVal) => {
-  localAssistant.value = { ...newVal };
+watch(() => props.visible, (newVal) => {
+  if (newVal) {
+    localAssistant.value = { ...props.assistant };
+  }
 });
 
 const handleSave = () => {
-  emit('save', { ...localAssistant.value });
+  // 严格验证并清理数据
+  const name = (localAssistant.value.name || '').trim();
+  const description = (localAssistant.value.description || '').trim();
+  const prompt = (localAssistant.value.prompt || '').trim();
+
+  if (!name) {
+    alert('请输入助手名称');
+    return;
+  }
+  
+  if (!prompt) {
+    alert('请输入提示词');
+    return;
+  }
+
+  // 构建严格符合后端要求的纯净数据结构
+  const payload = {
+    name,
+    description,
+    prompt
+    // 不包含任何其他字段（如id、时间戳等）
+  };
+
+  // 提交数据：分离后端结构体和前端逻辑ID
+  emit('save', {
+    payload,         // 后端需要的结构体
+    id: localAssistant.value.id  // 仅用于前端逻辑
+  });
 };
 </script>
 

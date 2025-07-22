@@ -164,7 +164,6 @@ const handleDelete = async (id) => {
 
 const openAddModal = () => {
   Object.assign(currentAssistant, {
-    id: '',
     name: '',
     description: '',
     prompt: '',
@@ -176,28 +175,35 @@ const closeModal = () => {
   isModalOpen.value = false
 }
 
-const saveAssistant = async () => {
+const saveAssistant = async ({ payload, id }) => {
   try {
-    const payload = { ...currentAssistant }
-
-    if (currentAssistant.id) {
-      await assistantApi.updateById(currentAssistant.id, payload)
+    console.log('提交到后端的数据:', payload); // 调试日志
+    
+    if (id) {
+      // 更新操作：id通过URL传递，payload只包含name/description/prompt
+      await assistantApi.updateById(id, payload);
     } else {
-      payload.gmt_create = new Date().toISOString().replace('T', ' ')
-      await assistantApi.save(payload)
+      // 新增操作：直接传递纯净结构体
+      await assistantApi.save(payload);
     }
     
-    await fetchAssistants()
-    const targetId = currentAssistant.id || sortedAssistants.value[0]?.id
+    // 更新成功后刷新列表
+    await fetchAssistants();
+    
+    // 选择保存的助手（如果是新增，选择最新创建的）
+    const targetId = id || sortedAssistants.value[0]?.id;
     if (targetId) {
-      const targetAssistant = assistants.value.find(a => a.id === targetId)
-      if (targetAssistant) handleSelectAssistant(targetAssistant)
+      const targetAssistant = assistants.value.find(a => a.id === targetId);
+      if (targetAssistant) handleSelectAssistant(targetAssistant);
     }
-    closeModal()
+    
+    closeModal();
+    alert('保存成功');
   } catch (err) {
-    alert('保存失败: ' + (err.message || '未知错误'))
+    console.error('保存失败:', err);
+    alert('保存失败：' + err.message);
   }
-}
+};
 
 const handleResetHistory = async () => {
   if (!selectedAssistantId.value) return
