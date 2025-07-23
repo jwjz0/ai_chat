@@ -30,12 +30,13 @@ type Config struct {
 		TimeoutSec int    `yaml:"timeout_sec"`
 	} `yaml:"llm"`
 	// 新增腾讯云ASR配置
-	TencentCloud struct {
+	asr struct {
+		AppID     string `yaml:"app_id"`
 		SecretID  string `yaml:"secret_id"`  // 腾讯云密钥ID
 		SecretKey string `yaml:"secret_key"` // 腾讯云密钥Key
 		Region    string `yaml:"region"`     // 区域，如ap-beijing
 		AsrEngine string `yaml:"asr_engine"` // 引擎模型，如16k_zh
-	} `yaml:"tencent_cloud"`
+	} `yaml:"asr"`
 }
 
 // LoadConfig 加载配置文件
@@ -101,10 +102,11 @@ func SetupApp() (http.Handler, *Config, error) {
 
 	// 新增：初始化ASR服务
 	asrService := service.NewASRService(
-		cfg.TencentCloud.SecretID,
-		cfg.TencentCloud.SecretKey,
-		cfg.TencentCloud.Region,
-		cfg.TencentCloud.AsrEngine,
+		cfg.asr.AppID,
+		cfg.asr.SecretID,
+		cfg.asr.SecretKey,
+		cfg.asr.Region,
+		cfg.asr.AsrEngine,
 	)
 
 	// 6. 初始化业务服务

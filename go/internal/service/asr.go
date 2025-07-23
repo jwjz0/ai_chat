@@ -2,11 +2,15 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
 	"net/url"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -19,14 +23,19 @@ type ASRService interface {
 
 // asrServiceImpl 腾讯云ASR实现（基于WebSocket）
 type asrServiceImpl struct {
+	appID     string // 已传入，但未使用到签名和连接参数
 	secretID  string
 	secretKey string
 	region    string
 	engine    string
 }
 
-func NewASRService(secretID, secretKey, region, engine string) ASRService {
+func NewASRService(appID, secretID, secretKey, region, engine string) ASRService {
+	if appID == "" || secretID == "" || secretKey == "" || region == "" {
+		panic("ASR服务初始化失败: AppId、SecretId、SecretKey和Region均为必填参数")
+	}
 	return &asrServiceImpl{
+		appID:     appID,
 		secretID:  secretID,
 		secretKey: secretKey,
 		region:    region,
@@ -34,39 +43,72 @@ func NewASRService(secretID, secretKey, region, engine string) ASRService {
 	}
 }
 
-// 腾讯云ASR WebSocket请求参数
+// 腾讯云ASR WebSocket请求参数（按文档v2版本）
 type asrRequest struct {
-	Action          string `json:"action"`                // 固定为"StartRecognition"或"ContinueRecognition"
-	Version         string `json:"version"`               // 版本，固定为"2020-09-28"
-	Seq             int    `json:"seq"`                   // 序列号，递增
-	Timestamp       int64  `json:"timestamp"`             // 时间戳
-	SecretId        string `json:"secretid"`              // 腾讯云SecretId
-	EngineModelType string `json:"enginemodeltype"`       // 引擎模型
-	VoiceId         string `json:"voiceid"`               // 语音唯一标识（可选）
-	AudioFormat     string `json:"audioformat"`           // 音频格式，如"pcm"
-	SampleRate      int    `json:"samplerate"`            // 采样率，如16000
-	ChannelNum      int    `json:"channelnum"`            // 声道数，固定1
-	Data            string `json:"data,omitempty"`        // 音频数据（base64编码）
-	End             int    `json:"end,omitempty"`         // 是否结束，1表示结束
-	HotwordId       string `json:"hotwordid,omitempty"`   // 热词表ID（可选）
-	NeedVad         int    `json:"needvad,omitempty"`     // 是否开启 vad，1表示开启
-	FilterDirty     int    `json:"filterdirty,omitempty"` // 是否过滤脏词
-	FilterModal     int    `json:"filtermodel,omitempty"` // 是否过滤语气词
-	FilterPunc      int    `json:"filterpunc,omitempty"`  // 是否过滤标点符号
+	Action          string `json:"action"`
+	Version         string `json:"version"`
+	Seq             int    `json:"seq"`
+	Timestamp       int64  `json:"timestamp"`
+	Region          string `json:"region"`
+	EngineModelType string `json:"enginemodeltype"`
+	VoiceId         string `json:"voiceid"`
+	AudioFormat     string `json:"audioformat"`
+	SampleRate      int    `json:"samplerate"`
+	ChannelNum      int    `json:"channelnum"`
+	Data            string `json:"data,omitempty"`
+	End             int    `json:"end,omitempty"`
+	NeedVad         int    `json:"needvad"`
 }
 
 // 腾讯云ASR WebSocket响应
 type asrResponse struct {
-	Code      int    `json:"code"`      // 错误码，0表示成功
-	Message   string `json:"message"`   // 错误信息
-	Seq       int    `json:"seq"`       // 序列号
-	Result    string `json:"result"`    // 识别结果
-	VoiceId   string `json:"voiceid"`   // 语音标识
-	End       int    `json:"end"`       // 是否最后一片结果
-	Timestamp int64  `json:"timestamp"` // 时间戳
+	Code      int    `json:"code"`
+	Message   string `json:"message"`
+	Seq       int    `json:"seq"`
+	Result    string `json:"result"`
+	End       int    `json:"end"`
+	Timestamp int64  `json:"timestamp"`
 }
 
-// StreamRecognize 处理流式语音识别（基于WebSocket）
+// 生成腾讯云API签名（关键修复：添加AppId，按字典序排序）
+func (s *asrServiceImpl) generateSignature(nonce int) string {
+	// 1. 签名参数必须包含AppId（必填！），并按字典序排序
+	params := map[string]string{
+		"Action":    "StartRecognition",
+		"AppId":     s.appID, // 新增：添加AppId
+		"Nonce":     strconv.Itoa(nonce),
+		"Region":    s.region,
+		"SecretId":  s.secretID,
+		"Timestamp": strconv.FormatInt(time.Now().Unix(), 10),
+		"Version":   "2020-09-28",
+	}
+
+	// 2. 按字典序排序参数（关键：腾讯云要求严格按字母顺序）
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // 排序后：Action, AppId, Nonce, Region, SecretId, Timestamp, Version
+
+	// 3. 拼接参数为"key=value&key=value"（值需URL编码）
+	var paramStr string
+	for i, k := range keys {
+		if i > 0 {
+			paramStr += "&"
+		}
+		paramStr += fmt.Sprintf("%s=%s", k, url.QueryEscape(params[k]))
+	}
+
+	// 4. 签名原文格式："GETasr.tencentcloudapi.com?" + 排序后的参数串（无空格！）
+	signatureBase := fmt.Sprintf("GETasr.tencentcloudapi.com?%s", paramStr)
+
+	// 5. HMAC-SHA1加密 + Base64编码
+	mac := hmac.New(sha1.New, []byte(s.secretKey))
+	mac.Write([]byte(signatureBase))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// StreamRecognize 流式语音识别（修复WebSocket连接参数）
 func (s *asrServiceImpl) StreamRecognize(ctx context.Context, audioStream io.Reader) (<-chan string, <-chan error) {
 	resultChan := make(chan string)
 	errChan := make(chan error, 1)
@@ -75,43 +117,59 @@ func (s *asrServiceImpl) StreamRecognize(ctx context.Context, audioStream io.Rea
 		defer close(resultChan)
 		defer close(errChan)
 
-		// 1. 构建WebSocket连接URL
+		// 1. 生成签名参数
+		nonce := int(time.Now().UnixNano() % 1000000)
+		timestamp := time.Now().Unix()
+		signature := s.generateSignature(nonce) // 此时签名已包含AppId
+
+		// 2. 构建WebSocket连接URL（必须包含AppId参数）
 		u := url.URL{
 			Scheme: "wss",
-			Host:   fmt.Sprintf("asr.%s.tencentcloudapi.com", s.region),
+			Host:   "asr.tencentcloudapi.com",
 			Path:   "/",
+			RawQuery: url.Values{
+				"Action":    {"StartRecognition"},
+				"AppId":     {s.appID}, // 新增：URL中添加AppId
+				"Nonce":     {strconv.Itoa(nonce)},
+				"Region":    {s.region},
+				"SecretId":  {s.secretID},
+				"Timestamp": {strconv.FormatInt(timestamp, 10)},
+				"Version":   {"2020-09-28"},
+				"Signature": {signature}, // 包含AppId的签名
+			}.Encode(),
 		}
 
-		// 2. 建立WebSocket连接
+		// 3. 建立WebSocket连接（此时参数完整）
 		conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 		if err != nil {
-			errChan <- fmt.Errorf("建立WebSocket连接失败: %w", err)
+			// 调试：打印完整URL（仅调试用，生产环境删除）
+			log.Printf("WebSocket连接URL: %s", u.String())
+			errChan <- fmt.Errorf("WebSocket连接失败: %w", err)
 			return
 		}
 		defer conn.Close()
 
-		// 3. 发送开始识别请求
+		// 4. 发送启动请求（StartRecognition）
 		seq := 1
 		startReq := asrRequest{
 			Action:          "StartRecognition",
 			Version:         "2020-09-28",
 			Seq:             seq,
-			Timestamp:       time.Now().Unix(),
-			SecretId:        s.secretID,
+			Timestamp:       timestamp,
+			Region:          s.region,
 			EngineModelType: s.engine,
-			AudioFormat:     "pcm", // 假设前端发送PCM格式
-			SampleRate:      16000, // 16k采样率
-			ChannelNum:      1,     // 单声道
-			NeedVad:         1,     // 开启VAD
+			AudioFormat:     "opus",
+			SampleRate:      16000,
+			ChannelNum:      1,
+			NeedVad:         1,
+		}
+		if err := conn.WriteJSON(startReq); err != nil {
+			errChan <- fmt.Errorf("发送启动请求失败: %w", err)
+			return
 		}
 		seq++
 
-		if err := conn.WriteJSON(startReq); err != nil {
-			errChan <- fmt.Errorf("发送开始请求失败: %w", err)
-			return
-		}
-
-		// 4. 启动协程接收识别结果
+		// 5. 接收识别结果（不变）
 		go func() {
 			for {
 				select {
@@ -125,74 +183,62 @@ func (s *asrServiceImpl) StreamRecognize(ctx context.Context, audioStream io.Rea
 					}
 
 					if resp.Code != 0 {
-						errChan <- fmt.Errorf("ASR错误: 代码=%d, 信息=%s", resp.Code, resp.Message)
+						errChan <- fmt.Errorf("ASR错误: %d-%s", resp.Code, resp.Message)
 						return
 					}
 
 					if resp.Result != "" {
-						log.Printf("ASR识别结果: %s", resp.Result)
+						log.Printf("ASR识别: %s", resp.Result)
 						resultChan <- resp.Result
 					}
 
 					if resp.End == 1 {
-						// 识别结束
 						return
 					}
 				}
 			}
 		}()
 
-		// 5. 读取音频流并发送
-		buffer := make([]byte, 3200) // 16k采样率下100ms的PCM数据（16bit*1声道）
+		// 6. 发送音频流（不变）
+		buffer := make([]byte, 3200)
 		for {
 			select {
 			case <-ctx.Done():
-				// 发送结束标记
 				conn.WriteJSON(asrRequest{
 					Action:    "ContinueRecognition",
-					Version:   "2020-09-28",
 					Seq:       seq,
 					Timestamp: time.Now().Unix(),
-					End:       1, // 标记结束
+					End:       1,
 				})
-				errChan <- ctx.Err()
 				return
 			default:
 				n, err := audioStream.Read(buffer)
 				if err == io.EOF {
-					// 发送结束标记
 					conn.WriteJSON(asrRequest{
 						Action:    "ContinueRecognition",
-						Version:   "2020-09-28",
 						Seq:       seq,
 						Timestamp: time.Now().Unix(),
-						End:       1, // 标记结束
+						End:       1,
 					})
 					return
 				}
 				if err != nil {
-					errChan <- fmt.Errorf("读取音频流失败: %w", err)
+					errChan <- fmt.Errorf("读取音频失败: %w", err)
 					return
 				}
 
-				// 发送音频片段（base64编码）
-				audioData := base64.StdEncoding.EncodeToString(buffer[:n])
 				req := asrRequest{
 					Action:    "ContinueRecognition",
-					Version:   "2020-09-28",
 					Seq:       seq,
 					Timestamp: time.Now().Unix(),
-					SecretId:  s.secretID,
-					Data:      audioData,
+					Data:      base64.StdEncoding.EncodeToString(buffer[:n]),
+				}
+				if err := conn.WriteJSON(req); err != nil {
+					errChan <- fmt.Errorf("发送音频失败: %w", err)
+					return
 				}
 				seq++
 
-				if err := conn.WriteJSON(req); err != nil {
-					errChan <- fmt.Errorf("发送音频数据失败: %w", err)
-					return
-				}
-
-				// 控制发送速率（避免过快发送）
 				time.Sleep(100 * time.Millisecond)
 			}
 		}

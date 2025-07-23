@@ -1,13 +1,22 @@
+# application.yaml
 server:
-  port: ":8080"  # 服务器端口
+  port: ":8080"
 
 data:
   db_path: "internal/data/voice_assistant.db"
 
 llm:
-  api_key: "${DASHSCOPE_API_KEY}"  # 从环境变量读取API密钥（推荐）
-  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"  # 通义千问兼容接口地址
-  model_name: "qwen-plus"  # 模型名称（可替换为qwen-turbo等）
-  max_tokens: 2048  # 最大生成 tokens
-  temperature: 0.7  # 温度参数（0-1）
-  timeout_sec: 60  # 接口超时时间
+  api_key: "${DASHSCOPE_API_KEY}"
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+  model_name: "qwen-plus"
+  max_tokens: 2048
+  temperature: 0.7
+  timeout_sec: 60
+
+# 腾讯云ASR配置
+asr:
+  app_id: "${ASR_APP_ID}"
+  secret_id: "${ASR_SECRET_ID}"    # 腾讯云控制台获取
+  secret_key: "${ASR_SECRET_KEY}"  # 腾讯云控制台获取
+  region: "ap-shanghai"                     # 支持的地域：ap-beijing, ap-guangzhou, ap-shanghai等
+  asr_engine: "16k_zh"                       # 引擎模型：16k_zh（16k中文）、16k_zh_video（16k中文视频）等
