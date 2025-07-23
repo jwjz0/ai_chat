@@ -16,7 +16,7 @@ func SetupRouter(assistantHandler *handler.AssistantHandler, historyHandler *han
 		// 允许前端域名（开发环境可用*，生产环境需指定具体域名）
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		// 允许的方法（包含OPTIONS预检请求）
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
 		// 允许的请求头（包含SSE需要的Accept）
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
 		// 允许暴露的响应头（SSE可能需要）
