@@ -1,3 +1,5 @@
+// handler/history_handler.go - 完整修复版本
+
 package handler
 
 import (
@@ -8,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -189,11 +192,21 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 	defer ticker.Stop()
 
 	ctx := c.Request.Context()
+	var saveWg sync.WaitGroup
+	saveWg.Add(1)
+
+	// 启动一个goroutine专门处理客户端断开连接的情况
+	go func() {
+		<-ctx.Done()
+		log.Printf("客户端断开连接，等待消息保存完成...")
+		saveWg.Wait() // 等待消息保存完成
+		log.Printf("消息保存完成，关闭连接")
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			// 客户端主动中止请求，服务层会处理保存逻辑
+			// 客户端断开连接，已在goroutine中处理保存
 			return
 		case content, ok := <-contentChan:
 			if !ok {
@@ -203,6 +216,7 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 				})
 				c.Writer.WriteString(fmt.Sprintf("data: %s\n\n", doneData))
 				c.Writer.(http.Flusher).Flush()
+				saveWg.Wait() // 确保保存完成
 				return
 			}
 			data, _ := json.Marshal(map[string]string{"content": content})
@@ -211,15 +225,19 @@ func (h *HistoryHandler) StreamProcessMessage(c *gin.Context) {
 		case err := <-errChan:
 			if err == nil {
 				log.Printf("回答结束")
+				saveWg.Wait() // 确保保存完成
 				return
 			}
 			// 区分上下文取消错误，此时服务层已保存内容
 			if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+				log.Printf("上下文取消错误，等待保存完成")
+				saveWg.Wait() // 确保保存完成
 				return
 			}
 			data, _ := json.Marshal(map[string]string{"error": err.Error()})
 			c.Writer.WriteString(fmt.Sprintf("data: %s\n\n", data))
 			c.Writer.(http.Flusher).Flush()
+			saveWg.Wait() // 确保保存完成
 			return
 		case <-ticker.C:
 			c.Writer.WriteString("data: {\"heartbeat\": true}\n\n")
