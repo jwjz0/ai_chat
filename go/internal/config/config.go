@@ -75,12 +75,12 @@ func SetupApp() (http.Handler, *Config, error) {
 	}
 
 	// 3. 初始化SQLite数据库（关键修复：调用sqlite.InitDB创建表）
-	if err := sqlite.InitDB(cfg.Data.DBPath); err != nil {
+	db, err := sqlite.InitDB(cfg.Data.DBPath)
+	if err != nil {
 		return nil, nil, fmt.Errorf("初始化数据库失败: %w", err)
 	}
-	db := sqlite.DB // 使用sqlite包中初始化好的全局连接
 
-	// 4. 初始化数据仓库（依赖数据库连接）
+	// 4. 初始化数据仓库（依赖数据库连接
 	assistantRepo := repository.NewAssistantRepo(db)
 	historyRepo := repository.NewHistoryRepo(db)
 
