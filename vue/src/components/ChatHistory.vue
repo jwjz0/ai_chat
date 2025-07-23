@@ -39,7 +39,7 @@
             :id="'msg-' + msg.id"
           >
             <!-- 只显示有gmt_create的消息时间 -->
-            <div v-if="msg.gmt_create" class="message-time">{{ formatDateTime(msg.gmt_create) }}</div>
+            <div v-if="msg.gmt_create" class="message-time">{{ msg.gmt_create }}</div>
             
             <div v-if="msg.input.send" class="user-message-container">
               <div class="message-content-wrapper">
@@ -55,7 +55,7 @@
               </div>
             </div>
             
-            <div v-if="msg.output.content" class="assistant-message-container">
+            <div v-if="msg.output.content || msg.isLoading" class="assistant-message-container">
               <div class="message-content-wrapper">
                 <div class="assistant-avatar">
                   <div class="avatar-image">🤖</div>
@@ -113,15 +113,6 @@ const props = defineProps({
 
 const historyContainer = ref(null);
 const autoScroll = ref(true);
-
-// 格式化日期时间
-const formatDateTime = (dateTime) => {
-  if (!dateTime) return '';
-  const date = new Date(dateTime);
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  return `${date.toLocaleDateString()} ${hours}:${minutes}`;
-};
 
 watch(() => props.messages.length, () => {
   if (historyContainer.value) {
