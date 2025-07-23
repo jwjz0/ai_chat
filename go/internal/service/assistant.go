@@ -102,6 +102,7 @@ func (s *assistantServiceImpl) Save(ctx context.Context, assistant *model.Assist
 		return nil, errors.New("failed to save assistant: " + err.Error())
 	}
 
+	// 添加默认欢迎消息
 	defaultMessage := model.Message{
 		Input: model.Input{
 			Prompt: saved.Prompt,

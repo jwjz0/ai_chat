@@ -2,8 +2,7 @@ server:
   port: ":8080"  # 服务器端口
 
 data:
-  assistants_path: "internal/data/assistants.json"  # 助手数据文件路径
-  histories_path: "internal/data/histories.json"    # 历史记录文件路径
+  db_path: "internal/data/voice_assistant.db"
 
 llm:
   api_key: "${DASHSCOPE_API_KEY}"  # 从环境变量读取API密钥（推荐）

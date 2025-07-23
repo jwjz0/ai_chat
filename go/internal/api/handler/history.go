@@ -87,7 +87,7 @@ func (h *HistoryHandler) ResetByAssistantID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusNoContent, model.Result{
+	c.JSON(http.StatusOK, model.Result{
 		Success: true,
 		Msg:     "对话已重置",
 		Data:    nil,

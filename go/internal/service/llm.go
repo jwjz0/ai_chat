@@ -15,11 +15,6 @@ import (
 	"Voice_Assistant/internal/model"
 )
 
-type LLMService interface {
-	GenerateReply(ctx context.Context, prompt string, input string) (model.Output, model.Usage, error)
-	StreamGenerate(ctx context.Context, messages []message) (<-chan string, <-chan error)
-}
-
 type llmServiceImpl struct {
 	apiKey    string
 	baseURL   string
@@ -60,11 +55,6 @@ type chatRequest struct {
 	Messages  []message `json:"messages"`
 	MaxTokens int       `json:"max_tokens,omitempty"`
 	Stream    bool      `json:"stream,omitempty"`
-}
-
-type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
 }
 
 type chatResponse struct {
