@@ -29,14 +29,6 @@ type Config struct {
 		MaxTokens  int    `yaml:"max_tokens"`
 		TimeoutSec int    `yaml:"timeout_sec"`
 	} `yaml:"llm"`
-	// 新增腾讯云ASR配置
-	asr struct {
-		AppID     string `yaml:"app_id"`
-		SecretID  string `yaml:"secret_id"`  // 腾讯云密钥ID
-		SecretKey string `yaml:"secret_key"` // 腾讯云密钥Key
-		Region    string `yaml:"region"`     // 区域，如ap-beijing
-		AsrEngine string `yaml:"asr_engine"` // 引擎模型，如16k_zh
-	} `yaml:"asr"`
 }
 
 // LoadConfig 加载配置文件
@@ -100,15 +92,6 @@ func SetupApp() (http.Handler, *Config, error) {
 		cfg.LLM.TimeoutSec,
 	)
 
-	// 新增：初始化ASR服务
-	asrService := service.NewASRService(
-		cfg.asr.AppID,
-		cfg.asr.SecretID,
-		cfg.asr.SecretKey,
-		cfg.asr.Region,
-		cfg.asr.AsrEngine,
-	)
-
 	// 6. 初始化业务服务
 	historyService := service.NewHistoryService(historyRepo, assistantRepo, llmService)
 	assistantService := service.NewAssistantService(assistantRepo, historyService)
@@ -116,9 +99,8 @@ func SetupApp() (http.Handler, *Config, error) {
 	// 7. 初始化API处理器（添加语音处理器）
 	assistantHandler := handler.NewAssistantHandler(assistantService)
 	historyHandler := handler.NewHistoryHandler(historyService)
-	voiceHandler := handler.NewVoiceHandler(asrService) // 新增
 
 	// 8. 初始化路由
-	router := api.SetupRouter(assistantHandler, historyHandler, voiceHandler) // 修改：传入voiceHandler
+	router := api.SetupRouter(assistantHandler, historyHandler)
 	return router, cfg, nil
 }

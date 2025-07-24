@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(assistantHandler *handler.AssistantHandler, historyHandler *handler.HistoryHandler, voiceHandler *handler.VoiceHandler) http.Handler {
+func SetupRouter(assistantHandler *handler.AssistantHandler, historyHandler *handler.HistoryHandler) http.Handler {
 	r := gin.Default()
 
 	// CORS 中间件（适配SSE）
@@ -40,13 +40,6 @@ func SetupRouter(assistantHandler *handler.AssistantHandler, historyHandler *han
 		apiV1h.DELETE("/:assistant_id", historyHandler.ResetByAssistantID)
 		apiV1h.POST("/:assistant_id", historyHandler.SaveByAssistantID)
 		apiV1h.POST("/:assistant_id/stream-process", historyHandler.StreamProcessMessage)
-	}
-
-	// 新增语音识别路由
-	apiV1Voice := r.Group("/api/voice-robot/v1/asr")
-	{
-		// 新增WebSocket路由
-		apiV1Voice.GET("/ws", voiceHandler.HandleWebSocket)
 	}
 
 	return r
