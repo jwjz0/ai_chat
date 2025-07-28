@@ -13,10 +13,5 @@ llm:
   temperature: 0.7
   timeout_sec: 60
 
-# 腾讯云ASR配置
-asr:
-  app_id: "${ASR_APP_ID}"
-  secret_id: "${ASR_SECRET_ID}"    # 腾讯云控制台获取
-  secret_key: "${ASR_SECRET_KEY}"  # 腾讯云控制台获取
-  region: "ap-shanghai"                     # 支持的地域：ap-beijing, ap-guangzhou, ap-shanghai等
-  asr_engine: "16k_zh"                       # 引擎模型：16k_zh（16k中文）、16k_zh_video（16k中文视频）等
+bocha:
+  api_key: "${BOCHA_API_KEY}"

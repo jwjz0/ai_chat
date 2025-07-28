@@ -29,6 +29,9 @@ type Config struct {
 		MaxTokens  int    `yaml:"max_tokens"`
 		TimeoutSec int    `yaml:"timeout_sec"`
 	} `yaml:"llm"`
+	BOCHA struct {
+		APIKey string `yaml:"api_key"`
+	} `yaml:"bocha"`
 }
 
 // LoadConfig 加载配置文件
@@ -46,6 +49,7 @@ func LoadConfig() (*Config, error) {
 
 	// 替换环境变量占位符（如${DASHSCOPE_API_KEY}）
 	cfg.LLM.APIKey = replaceEnvVar(cfg.LLM.APIKey)
+	cfg.BOCHA.APIKey = replaceEnvVar(cfg.BOCHA.APIKey)
 	return &cfg, nil
 }
 
@@ -90,6 +94,7 @@ func SetupApp() (http.Handler, *Config, error) {
 		cfg.LLM.ModelName,
 		cfg.LLM.MaxTokens,
 		cfg.LLM.TimeoutSec,
+		cfg.BOCHA.APIKey,
 	)
 
 	// 6. 初始化业务服务
