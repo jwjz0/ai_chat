@@ -4,10 +4,10 @@
       <h3 class="list-title">{{ assistants.length ? '助手列表' : '暂无助手' }}</h3>
       <div class="action-buttons">
         <button class="add-btn" @click="$emit('add')">
-          ➕ 新增助手
+          新增助手
         </button>
         <button class="refresh-btn" @click="$emit('refresh')">
-          ↺ 刷新
+          刷新
         </button>
       </div>
     </div>
@@ -19,11 +19,9 @@
           :key="assistant.id" 
           class="assistant-item"
           :class="{ active: selectedId === assistant.id }"
+          @click="$emit('select', assistant)"
         >
-          <div 
-            class="assistant-content"
-            @click="$emit('select', assistant)"
-          >
+          <div class="assistant-content">
             <div class="assistant-info">
               <p class="assistant-name">{{ assistant.name }}</p>
               <p class="assistant-desc">{{ assistant.description }}</p>
@@ -71,36 +69,27 @@ const props = defineProps({
 
 const assistantListContainer = ref(null);
 const scrollContainer = ref(null);
-const isInitialLoad = ref(true);
-const isUserInteraction = ref(false);
 
 // 监听选中助手变化
-watch(() => props.selectedId, (newVal, oldVal) => {
-  if (oldVal) {
-    isUserInteraction.value = true;
-  }
+watch(() => props.selectedId, (newVal) => {
   scrollToSelectedAssistant();
 });
 
 // 监听助手列表变化
-watch(() => props.assistants, (newAssistants) => {
-  if (isInitialLoad.value && newAssistants.length > 0) {
-    isInitialLoad.value = false;
-    scrollToSelectedAssistant();
-  }
+watch(() => props.assistants, () => {
+  scrollToSelectedAssistant();
 }, { deep: true });
 
+// 平滑滚动到选中的助手项
 const scrollToSelectedAssistant = async () => {
   await nextTick();
   
-  if (!assistantListContainer.value) return;
+  const container = scrollContainer.value || assistantListContainer.value?.querySelector('.assistants-scroll-container');
+  const selectedElement = assistantListContainer.value?.querySelector('.assistant-item.active');
   
-  const selectedElement = assistantListContainer.value.querySelector('.assistant-item.active');
-  if (!selectedElement) return;
+  if (!container || !selectedElement) return;
   
-  const container = scrollContainer.value || assistantListContainer.value.querySelector('.assistants-scroll-container');
-  if (!container) return;
-  
+  // 计算目标滚动位置，使选中项居中显示
   const containerRect = container.getBoundingClientRect();
   const elementRect = selectedElement.getBoundingClientRect();
   
@@ -109,22 +98,15 @@ const scrollToSelectedAssistant = async () => {
   const scrollTop = container.scrollTop;
   const targetScrollTop = scrollTop + elementRect.top - containerRect.top - (containerHeight - elementHeight) / 2;
   
+  // 使用平滑滚动
   container.scrollTo({
     top: targetScrollTop,
-    behavior: isInitialLoad.value || !isUserInteraction.value ? 'auto' : 'smooth'
+    behavior: 'smooth'
   });
-  
-  if (isUserInteraction.value) {
-    setTimeout(() => {
-      isUserInteraction.value = false;
-    }, 500);
-  }
 };
 
 onMounted(() => {
-  nextTick(() => {
-    scrollToSelectedAssistant();
-  });
+  scrollToSelectedAssistant();
 });
 </script>
 
@@ -132,28 +114,31 @@ onMounted(() => {
 .block-1 {
   width: 280px;
   height: 100%;
-  background-color: #1e293b; /* 深色背景稍浅一点，更柔和 */
-  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  background-color: #ffffff;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
   z-index: 10;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-right: 1px solid #e5e7eb;
 }
 
 .list-header {
   padding: 16px;
-  background-color: #1e293b;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08); /* 边框更淡 */
+  background-color: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
   position: sticky;
   top: 0;
   z-index: 20;
 }
 
 .list-title {
-  color: #f8fafc; /* 文字更亮一点 */
+  color: #4b5563;
   margin: 0 0 12px 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 16px;
+  font-weight: 500;
 }
 
 .action-buttons {
@@ -163,10 +148,9 @@ onMounted(() => {
 }
 
 .add-btn {
-  /* 薄荷绿主色 */
-  background-color: #4ade80;
+  background-color: #4b5563;
   border: none;
-  color: #0f172a; /* 深色文字更搭配浅色按钮 */
+  color: #ffffff;
   padding: 6px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -181,14 +165,14 @@ onMounted(() => {
 }
 
 .add-btn:hover {
-  background-color: #22c55e; /* 深一点的绿色 */
+  background-color: #374151;
   transform: translateY(-1px);
 }
 
 .refresh-btn {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: #f3f4f6;
   border: none;
-  color: #f8fafc;
+  color: #6b7280;
   padding: 6px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -200,7 +184,7 @@ onMounted(() => {
 }
 
 .refresh-btn:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: #e5e7eb;
   transform: translateY(-1px);
 }
 
@@ -208,6 +192,7 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 0 16px 16px;
+  scroll-behavior: smooth;
 }
 
 .assistants-scroll-container::-webkit-scrollbar {
@@ -216,8 +201,12 @@ onMounted(() => {
 }
 
 .assistants-scroll-container::-webkit-scrollbar-thumb {
-  background-color: rgba(74, 222, 128, 0.3); /* 滚动条用主题色 */
+  background-color: #d1d5db;
   border-radius: 3px;
+}
+
+.assistants-scroll-container::-webkit-scrollbar-track {
+  background-color: #f9fafb;
 }
 
 .assistants-container {
@@ -229,29 +218,30 @@ onMounted(() => {
 }
 
 .assistant-item {
-  background-color: rgba(255, 255, 255, 0.05); /* 项背景更淡 */
+  background-color: #f9fafb;
   border-radius: 6px;
   padding: 12px;
-  color: #f8fafc;
+  color: #4b5563;
   cursor: pointer;
   transition: all 0.2s;
   position: relative;
   overflow: hidden;
+  display: flex;
+  align-items: flex-start;
 }
 
 .assistant-item:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: #f3f4f6;
   transform: translateX(2px);
 }
 
 .assistant-item.active {
-  /* 选中状态用主题色 */
-  background-color: rgba(74, 222, 128, 0.15);
-  border-left: 3px solid #4ade80;
+  background-color: #e5e7eb;
+  border-left: 3px solid #4b5563;
 }
 
 .assistant-content {
-  cursor: pointer;
+  flex: 1;
   padding-right: 40px;
 }
 
@@ -259,28 +249,33 @@ onMounted(() => {
   margin-bottom: 8px;
 }
 
+/* 恢复文字超出省略号功能 - 关键修复 */
 .assistant-name {
   font-weight: 600;
   margin: 0 0 4px 0;
   font-size: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
+  white-space: nowrap;  /* 禁止换行 */
+  overflow: hidden;    /* 隐藏超出部分 */
+  text-overflow: ellipsis;  /* 显示省略号 */
+  max-width: 180px;    /* 限制最大宽度 */
 }
 
 .assistant-desc {
   margin: 0;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: #6b7280;
+  white-space: nowrap;  /* 禁止换行 */
+  overflow: hidden;    /* 隐藏超出部分 */
+  text-overflow: ellipsis;  /* 显示省略号 */
+  max-width: 180px;    /* 限制最大宽度 */
 }
 
 .assistant-meta {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: #9ca3af;
+  white-space: nowrap;  /* 禁止换行 */
+  overflow: hidden;    /* 隐藏超出部分 */
+  text-overflow: ellipsis;  /* 显示省略号 */
 }
 
 .assistant-actions {
@@ -313,21 +308,21 @@ onMounted(() => {
 }
 
 .edit-btn {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  background-color: #e5e7eb;
+  color: #6b7280;
 }
 
 .edit-btn:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: #d1d5db;
 }
 
 .delete-btn {
-  background-color: rgba(239, 68, 68, 0.2); /* 红色调淡一点 */
-  color: #f8fafc;
+  background-color: #fee2e2;
+  color: #ef4444;
 }
 
 .delete-btn:hover {
-  background-color: rgba(239, 68, 68, 0.3);
+  background-color: #fecaca;
 }
 
 .status {
@@ -336,8 +331,7 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* 加载状态用主题色 */
-.loading { color: #4ade80; }
-.empty { color: rgba(255, 255, 255, 0.5); }
+.loading { color: #4b5563; }
+.empty { color: #9ca3af; }
 .error { color: #ef4444; }
 </style>

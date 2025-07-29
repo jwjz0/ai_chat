@@ -463,7 +463,7 @@ watch(() => historyMessages.value.length, async (newLen) => {
   height: 100vh;
   margin: 0;
   padding: 0;
-  background-color: #f3f4f6;
+  background-color: #f9fafb;
   overflow: hidden;
 }
 

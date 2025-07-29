@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// 工具定义
+// 工具定义（通用搜索描述）
 type Tool struct {
 	Type     string   `json:"type"`
 	Function Function `json:"function"`
@@ -45,27 +45,28 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
-// 博查搜索相关结构
+// 博查搜索相关结构（修正JSON标签，匹配API响应）
 type BochaSearchRequest struct {
-	Query     string `json:"query"`
-	Freshness string `json:"freshness,omitempty"`
-	Summary   bool   `json:"summary"`
-	Count     int    `json:"count"`
+	Query     string `json:"query"`     // 搜索关键词
+	Freshness string `json:"freshness"` // 新鲜度（如"oneDay"、"oneWeek"）
+	Summary   bool   `json:"summary"`   // 是否返回摘要
+	Count     int    `json:"count"`     // 返回结果数量
 }
 
+// 核心修正：调整结构体字段的json标签，与API返回的小写驼峰键名匹配
 type BochaSearchResponse struct {
 	Code  int    `json:"code"`
 	LogID string `json:"log_id"`
 	Msg   string `json:"msg"`
 	Data  struct {
-		WebPages struct {
-			Value []struct {
-				Name    string `json:"name"`
-				Url     string `json:"url"`
-				Snippet string `json:"snippet"`
-				Time    string `json:"datePublished"`
+		WebPages struct { // 对应API的"data.webPages"
+			Value []struct { // 对应API的"data.webPages.value"
+				Name          string `json:"name"`
+				Url           string `json:"url"`
+				Snippet       string `json:"snippet"`
+				DatePublished string `json:"datePublished"` // 修正字段名，匹配API的"datePublished"
 			} `json:"value"`
-		} `json:"webPages"`
+		} `json:"webPages"` // 关键修正：标签改为小写"webPages"
 	} `json:"data"`
 }
 
@@ -88,28 +89,31 @@ type llmServiceImpl struct {
 	tools       []Tool
 }
 
-// 初始化函数
+// 初始化函数（通用搜索工具）
 func NewLLMService(apiKey, baseURL, modelName string, maxTokens int, timeoutSec int, bochaAPIKey string) LLMService {
 	tools := []Tool{
 		{
 			Type: "function",
 			Function: Function{
-				Name:        "bocha_search",
-				Description: "获取实时信息、动态数据或最新资讯时使用",
+				Name: "bocha_search",
+				Description: "使用博查全领域高级搜索API获取实时信息，支持任意领域查询。" +
+					"查询时请确保关键词具体明确（如“杭州余杭区 2025年7月29日 天气”）。",
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"query": map[string]interface{}{
 							"type":        "string",
-							"description": "搜索关键词（完整自然语言句子，含时间、地点）",
+							"description": "具体搜索关键词，尽量包含时间、地点等关键信息",
 						},
 						"freshness": map[string]interface{}{
 							"type":        "string",
-							"description": "时间范围（如'oneWeek'）",
+							"description": "信息新鲜度，可选值：oneDay（1天内）、oneWeek（1周内）、oneMonth（1月内）",
+							"default":     "oneDay",
 						},
 						"count": map[string]interface{}{
 							"type":        "integer",
-							"description": "结果数量(最少5个)",
+							"description": "返回结果数量（最大50）",
+							"default":     5,
 						},
 					},
 					"required": []string{"query"},
@@ -187,7 +191,7 @@ func (s *llmServiceImpl) GenerateReply(ctx context.Context, prompt string, input
 	return response.Choices[0].Message.Content, nil
 }
 
-// 流式生成
+// 流式生成基础实现
 func (s *llmServiceImpl) StreamGenerate(ctx context.Context, messages []Message, tools []Tool) (<-chan string, <-chan error) {
 	contentChan, errChan := make(chan string), make(chan error, 1)
 
@@ -195,9 +199,18 @@ func (s *llmServiceImpl) StreamGenerate(ctx context.Context, messages []Message,
 		defer close(contentChan)
 		defer close(errChan)
 
+		// 系统提示：引导LLM处理空结果
+		enhancedMessages := append([]Message{
+			{
+				Role: "system",
+				Content: "若搜索结果为空，请明确告知用户当前未找到相关信息，" +
+					"并建议用户调整关键词或补充更多细节后重试。",
+			},
+		}, messages...)
+
 		reqBody := map[string]interface{}{
 			"model":      s.modelName,
-			"messages":   messages,
+			"messages":   enhancedMessages,
 			"max_tokens": s.maxTokens,
 			"stream":     true,
 			"tools":      tools,
@@ -253,74 +266,63 @@ func (s *llmServiceImpl) StreamGenerate(ctx context.Context, messages []Message,
 	return contentChan, errChan
 }
 
+// 带搜索功能的流式生成
 func (s *llmServiceImpl) StreamGenerateWithSearch(ctx context.Context, messages []Message) (<-chan string, <-chan error) {
-	contentChan, errChan := make(chan string), make(chan error, 1)
+	contentChan := make(chan string)
+	errChan := make(chan error, 1)
 
 	go func() {
-		defer close(contentChan)
-		defer close(errChan)
+		defer func() {
+			close(contentChan)
+			close(errChan)
+			log.Println("所有流式数据处理完成")
+		}()
 
-		// 第一次调用明确标记（移除冗余换行符）
-		log.Println("======================================")
-		log.Println("===== 开始第一次LLM调用（判断是否需要工具） =====")
-		log.Println("======================================")
-
+		log.Println("开始第一次LLM调用（判断是否需要工具）")
 		streamChan, streamErrChan := s.StreamGenerate(ctx, messages, s.tools)
-		toolCalls, assistantMsg, finalResponse := s.parseToolCalls(streamChan, streamErrChan)
 
-		log.Println("======================================")
-		log.Println("===== 第一次LLM调用结束 =====")
-		log.Println("======================================")
-
-		if len(toolCalls) == 0 {
-			log.Println("无需二次调用，直接返回结果")
-			contentChan <- finalResponse
+		toolCalls, assistantMsg, err := s.parseToolCalls(streamChan, streamErrChan, contentChan)
+		if err != nil {
+			errChan <- fmt.Errorf("第一次调用解析失败: %w", err)
 			return
 		}
 
-		// 明确标记进入第二次调用（移除冗余换行符）
-		log.Println("======================================")
-		log.Println("===== 检测到工具调用，准备第二次LLM调用 =====")
-		log.Println("======================================")
+		if len(toolCalls) == 0 {
+			log.Println("无需工具调用，第一次调用流式内容已完成")
+			return
+		}
 
+		log.Printf("检测到%d个工具调用，执行搜索后发起第二次调用", len(toolCalls))
 		messages = append(messages, assistantMsg)
-		log.Printf("工具调用详情: %+v\n", toolCalls)
-
 		toolResults := s.executeTools(ctx, toolCalls)
 		messages = append(messages, toolResults...)
 
-		// 开始第二次调用标记（移除冗余换行符）
-		log.Println("======================================")
-		log.Println("===== 开始第二次LLM调用（生成最终回答） =====")
-		log.Println("======================================")
-
+		log.Println("开始第二次LLM调用（生成最终回答）")
 		finalChan, finalErrChan := s.StreamGenerate(ctx, messages, s.tools)
-		s.forwardStream(finalChan, finalErrChan, contentChan)
 
-		log.Println("======================================")
-		log.Println("===== 第二次LLM调用结束 =====")
-		log.Println("======================================")
+		if err := s.forwardStream(finalChan, finalErrChan, contentChan); err != nil {
+			errChan <- fmt.Errorf("第二次调用转发失败: %w", err)
+			return
+		}
+
+		log.Println("第二次LLM调用流式内容处理完成")
 	}()
 
 	return contentChan, errChan
 }
 
 // 解析流式响应
-func (s *llmServiceImpl) parseToolCalls(streamChan <-chan string, errChan <-chan error) ([]ToolCall, Message, string) {
+func (s *llmServiceImpl) parseToolCalls(streamChan <-chan string, errChan <-chan error, contentChan chan<- string) ([]ToolCall, Message, error) {
 	type partialTool struct {
 		id        string
 		name      string
 		arguments strings.Builder
 	}
 	partials := make(map[int]*partialTool)
-	var finalContent string
-	var fullResponse strings.Builder
 	var assistantMsg Message
 	assistantMsg.Role = "assistant"
 
 	for chunk := range streamChan {
-		fullResponse.WriteString(chunk)
-
 		var resp struct {
 			Choices []struct {
 				Delta struct {
@@ -331,12 +333,16 @@ func (s *llmServiceImpl) parseToolCalls(streamChan <-chan string, errChan <-chan
 		}
 
 		if err := json.Unmarshal([]byte(chunk), &resp); err != nil {
+			log.Printf("解析流式chunk失败（非致命）: %v, chunk: %s", err, chunk)
 			continue
 		}
 
 		for _, choice := range resp.Choices {
-			finalContent += choice.Delta.Content
-			assistantMsg.Content += choice.Delta.Content
+			if choice.Delta.Content != "" {
+				log.Printf("第一次调用流式内容: %s", choice.Delta.Content)
+				contentChan <- choice.Delta.Content
+				assistantMsg.Content += choice.Delta.Content
+			}
 
 			for _, tc := range choice.Delta.ToolCalls {
 				pt, exists := partials[tc.Index]
@@ -357,16 +363,7 @@ func (s *llmServiceImpl) parseToolCalls(streamChan <-chan string, errChan <-chan
 	}
 
 	if err := <-errChan; err != nil {
-		log.Printf("解析工具调用错误: %v", err)
-	}
-
-	// 打印第一次调用的完整结果（格式化后的JSON）
-	log.Println("第一次LLM调用完整返回结果:")
-	var prettyJSON bytes.Buffer
-	if err := json.Indent(&prettyJSON, []byte(fullResponse.String()), "", "  "); err != nil {
-		log.Println(fullResponse.String()) // 格式化失败时直接打印原始内容
-	} else {
-		log.Println(prettyJSON.String())
+		return nil, assistantMsg, fmt.Errorf("第一次调用流式错误: %w", err)
 	}
 
 	var toolCalls []ToolCall
@@ -388,13 +385,17 @@ func (s *llmServiceImpl) parseToolCalls(streamChan <-chan string, errChan <-chan
 		})
 	}
 
-	return toolCalls, assistantMsg, finalContent
+	return toolCalls, assistantMsg, nil
 }
 
 // 执行工具调用
 func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []Message {
 	var results []Message
-	for _, call := range calls {
+	log.Printf("开始执行%d个工具调用", len(calls))
+
+	for i, call := range calls {
+		log.Printf("执行第%d个工具调用: %s", i+1, call.Function.Name)
+
 		if call.Function.Name != "bocha_search" {
 			results = append(results, Message{
 				Role:       "tool",
@@ -404,19 +405,15 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 			continue
 		}
 
+		// 解析参数
 		var params map[string]interface{}
-		argsStr := call.Function.Arguments
-		if argsStr != "" {
-			if err := json.Unmarshal([]byte(argsStr), &params); err != nil {
-				results = append(results, Message{
-					Role:       "tool",
-					Content:    fmt.Sprintf("参数解析错误: %v，原始参数: %s", err, argsStr),
-					ToolCallID: call.ID,
-				})
-				continue
-			}
-		} else {
-			params = make(map[string]interface{})
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &params); err != nil {
+			results = append(results, Message{
+				Role:       "tool",
+				Content:    fmt.Sprintf("参数解析错误: %v", err),
+				ToolCallID: call.ID,
+			})
+			continue
 		}
 
 		query, ok := params["query"].(string)
@@ -429,33 +426,69 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 			continue
 		}
 
-		searchReq := BochaSearchRequest{
-			Query:   query,
-			Count:   5,
-			Summary: true,
-		}
-		if freshness, ok := params["freshness"].(string); ok {
-			searchReq.Freshness = freshness
-		}
-		if count, ok := params["count"].(float64); ok {
-			searchReq.Count = int(count)
+		// 构建搜索请求
+		freshness := "oneDay"
+		if f, ok := params["freshness"].(string); ok && f != "" {
+			freshness = f
 		}
 
-		resp, err := s.callBochaAPI(ctx, searchReq)
+		count := 10
+		if c, ok := params["count"].(float64); ok && c > 0 {
+			count = int(c)
+		}
+
+		searchReq := BochaSearchRequest{
+			Query:     query,
+			Freshness: freshness,
+			Count:     count,
+			Summary:   true,
+		}
+
+		// 执行搜索（最多重试3次）
+		var resp *BochaSearchResponse
+		var err error
+		maxRetries := 3
+		for retry := 0; retry < maxRetries; retry++ {
+			// 输出每次请求参数
+			reqJSON, _ := json.Marshal(searchReq)
+			log.Printf("第%d次尝试调用博查API，请求参数: %s", retry+1, string(reqJSON))
+
+			resp, err = s.callBochaAPI(ctx, searchReq)
+			if err != nil {
+				log.Printf("第%d次搜索失败（将重试）：%v", retry+1, err)
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			// 修正：正确判断结果数量（依赖解析后的resp）
+			if len(resp.Data.WebPages.Value) > 0 {
+				log.Printf("第%d次搜索成功，获取到%d条结果", retry+1, len(resp.Data.WebPages.Value))
+				break
+			}
+			log.Printf("第%d次搜索无结果（将重试）：%s", retry+1, query)
+			time.Sleep(1 * time.Second)
+		}
+
+		// 处理结果
 		if err != nil {
 			results = append(results, Message{
 				Role:       "tool",
-				Content:    fmt.Sprintf("搜索失败: %v", err),
+				Content:    fmt.Sprintf("搜索失败（已重试3次）: %v", err),
 				ToolCallID: call.ID,
 			})
 			continue
 		}
 
+		// 输出API原始响应（用于调试）
+		respJSON, _ := json.Marshal(resp)
+		log.Printf("博查API最终响应: %s", string(respJSON))
+
+		formattedResult := s.formatSearchResult(resp)
 		results = append(results, Message{
 			Role:       "tool",
-			Content:    s.formatSearchResult(resp),
+			Content:    formattedResult,
 			ToolCallID: call.ID,
 		})
+		log.Printf("工具调用完成，获取到%d条结果", len(resp.Data.WebPages.Value))
 	}
 	return results
 }
@@ -467,6 +500,9 @@ func (s *llmServiceImpl) callBochaAPI(ctx context.Context, req BochaSearchReques
 	if err != nil {
 		return nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
+
+	// 输出完整请求信息
+	log.Printf("调用博查API，URL: %s，请求体: %s", apiURL, string(reqBytes))
 
 	reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(reqBytes))
 	if err != nil {
@@ -486,13 +522,16 @@ func (s *llmServiceImpl) callBochaAPI(ctx context.Context, req BochaSearchReques
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 
+	// 输出完整响应信息（用于调试）
+	log.Printf("博查API响应状态码: %d，响应体: %s", resp.StatusCode, string(respBody))
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP错误: %d, 内容: %s", resp.StatusCode, string(respBody))
 	}
 
 	var searchResp BochaSearchResponse
 	if err := json.Unmarshal(respBody, &searchResp); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+		return nil, fmt.Errorf("解析响应失败: %w，响应体: %s", err, string(respBody))
 	}
 
 	if searchResp.Code != 200 {
@@ -502,35 +541,29 @@ func (s *llmServiceImpl) callBochaAPI(ctx context.Context, req BochaSearchReques
 	return &searchResp, nil
 }
 
-// 格式化搜索结果（每条结果整行打印）
+// 格式化搜索结果（通用处理）
 func (s *llmServiceImpl) formatSearchResult(resp *BochaSearchResponse) string {
 	var result strings.Builder
-	result.WriteString("以下是搜索结果：\n\n")
 
-	// 打印搜索结果（每条结果一行）
-	log.Println("搜索结果：")
-	for i, item := range resp.Data.WebPages.Value {
-		// 单条结果格式：序号. 名称 [发布时间] 摘要 - 链接
-		itemStr := fmt.Sprintf("%d. %s [%s] %s - %s",
-			i+1, item.Name, item.Time, item.Snippet, item.Url)
-		log.Println(itemStr)
-
-		// 同时构建返回给LLM的结果字符串
-		result.WriteString(fmt.Sprintf("%d. %s\n发布时间: %s\n摘要: %s\n链接: %s\n\n",
-			i+1, item.Name, item.Time, item.Snippet, item.Url))
+	// 无结果提示
+	if len(resp.Data.WebPages.Value) == 0 {
+		result.WriteString("未找到相关搜索结果，请尝试调整关键词或补充更多细节后重试。")
+		return result.String()
 	}
 
+	// 有结果时正常格式化
+	result.WriteString("以下是搜索结果：\n\n")
+	for i, item := range resp.Data.WebPages.Value {
+		result.WriteString(fmt.Sprintf("%d. %s\n发布时间: %s\n摘要: %s\n链接: %s\n\n",
+			i+1, item.Name, item.DatePublished, item.Snippet, item.Url))
+	}
 	return result.String()
 }
 
-// 转发流式结果并打印第二次调用返回值
-func (s *llmServiceImpl) forwardStream(finalChan <-chan string, finalErrChan <-chan error, contentChan chan<- string) {
-	var finalAnswer strings.Builder
-	var fullResponse strings.Builder // 收集完整的流式响应
-
+// 转发流式结果
+func (s *llmServiceImpl) forwardStream(finalChan <-chan string, finalErrChan <-chan error, contentChan chan<- string) error {
+	hasContent := false
 	for chunk := range finalChan {
-		fullResponse.WriteString(chunk) // 收集原始响应
-
 		var streamResp struct {
 			Choices []struct {
 				Delta struct {
@@ -539,30 +572,28 @@ func (s *llmServiceImpl) forwardStream(finalChan <-chan string, finalErrChan <-c
 			} `json:"choices"`
 		}
 
-		if err := json.Unmarshal([]byte(chunk), &streamResp); err == nil {
-			for _, choice := range streamResp.Choices {
-				if choice.Delta.Content != "" {
-					contentChan <- choice.Delta.Content
-					finalAnswer.WriteString(choice.Delta.Content)
-				}
+		if err := json.Unmarshal([]byte(chunk), &streamResp); err != nil {
+			log.Printf("第二次调用解析chunk失败（非致命）: %v, chunk: %s", err, chunk)
+			continue
+		}
+
+		for _, choice := range streamResp.Choices {
+			if choice.Delta.Content != "" {
+				hasContent = true
+				log.Printf("第二次调用流式内容: %s", choice.Delta.Content)
+				contentChan <- choice.Delta.Content
 			}
 		}
 	}
 
-	// 打印第二次调用的完整结果
-	log.Println("第二次LLM调用完整返回结果:")
-	var prettyJSON bytes.Buffer
-	if err := json.Indent(&prettyJSON, []byte(fullResponse.String()), "", "  "); err != nil {
-		log.Println(fullResponse.String()) // 格式化失败时直接打印
-	} else {
-		log.Println(prettyJSON.String())
+	if !hasContent {
+		log.Println("第二次调用LLM未返回内容")
+		contentChan <- "抱歉，暂时无法获取相关信息。请尝试调整问题或提供更多细节。"
 	}
-
-	log.Println("第二次LLM调用生成的最终回答:")
-	log.Println(finalAnswer.String())
 
 	if err := <-finalErrChan; err != nil {
-		log.Printf("最终生成错误: %v", err)
-		contentChan <- "生成回答失败"
+		return fmt.Errorf("第二次调用流式错误: %w", err)
 	}
+
+	return nil
 }

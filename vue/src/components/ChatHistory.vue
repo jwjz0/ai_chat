@@ -1,16 +1,18 @@
 <template>
   <div class="block block-2">
     <div class="history-header sticky-header">
-      <h3>
-        {{ assistant ? assistant.name + ' 的对话' : '历史对话' }}
-      </h3>
+      <div class="header-content">
+        <h3>
+          {{ assistant ? assistant.name + ' 的对话' : '历史对话' }}
+        </h3>
+      </div>
       <div class="header-actions">
         <button 
           class="reset-btn" 
           :disabled="!assistant"
           @click="$emit('reset-history')"
         >
-          重置对话
+          <span>重置对话</span>
         </button>
       </div>
     </div>
@@ -36,9 +38,7 @@
             v-for="msg in messages" 
             :key="msg.id" 
             class="message-item"
-            :id="'msg-' + msg.id"
           >
-            <!-- 只显示有gmt_create的消息时间 -->
             <div v-if="msg.gmt_create" class="message-time">{{ msg.gmt_create }}</div>
             
             <div v-if="msg.input.send" class="user-message-container">
@@ -49,16 +49,30 @@
                     输入tokens: {{ msg.usage.input_tokens }}
                   </div>
                 </div>
+                <!-- 用户头像替换为图片 -->
                 <div class="user-avatar">
-                  <div class="avatar-image">👤</div>
+                  <div class="avatar-image">
+                    <img 
+                      src="/src/assets/imgs/user.jpg" 
+                      alt="用户头像" 
+                      class="avatar-img"
+                    >
+                  </div>
                 </div>
               </div>
             </div>
             
             <div v-if="msg.output.content || msg.isLoading" class="assistant-message-container">
               <div class="message-content-wrapper">
+                <!-- 助手头像替换为图片 -->
                 <div class="assistant-avatar">
-                  <div class="avatar-image">🤖</div>
+                  <div class="avatar-image">
+                    <img 
+                      src="/src/assets/imgs/assistant.jpg" 
+                      alt="助手头像" 
+                      class="avatar-img"
+                    >
+                  </div>
                 </div>
                 <div class="message-bubble assistant-bubble">
                   <div class="message-content">
@@ -102,7 +116,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, watch } from 'vue';
 
 const props = defineProps({
   assistant: { type: Object, default: null },
@@ -114,12 +128,9 @@ const props = defineProps({
 const historyContainer = ref(null);
 const autoScroll = ref(true);
 
-// 格式化消息内容（处理换行和加粗）
 const formatMessage = (content) => {
   if (!content) return '';
-  // 处理**加粗**语法
   let formatted = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  // 处理换行符（将\n\n转为<br><br>，\n转为<br>）
   formatted = formatted.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
   return formatted;
 };
@@ -141,10 +152,10 @@ const scrollToBottom = (force = false) => {
 </script>
 
 <style scoped>
-/* 样式保持不变 */
+/* 基础布局样式 */
 .block-2 {
   flex: 1;
-  background-color: transparent;
+  background-color: #f9fafb;
   box-sizing: border-box;
   overflow: hidden;
   display: flex;
@@ -154,24 +165,26 @@ const scrollToBottom = (force = false) => {
 .sticky-header {
   position: sticky;
   top: 0;
-  background-color: #f3f4f6;
+  background-color: #ffffff;
   z-index: 20;
-  padding: 20px 0 12px;
-  margin-bottom: 0;
+  padding: 12px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border-radius: 0 0 12px 12px;
 }
 
 .history-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e2e8f0;
+  gap: 16px;
 }
 
-.history-header h3 {
+.header-content h3 {
   margin: 0;
-  color: #334155;
-  font-size: 18px;
+  color: #4b5563;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
 }
 
 .header-actions {
@@ -180,43 +193,44 @@ const scrollToBottom = (force = false) => {
 }
 
 .reset-btn {
-  background-color: #e74c3c;
-  color: white;
+  background-color: #f3f4f6;
+  color: #6b7280;
   border: none;
-  border-radius: 4px;
-  padding: 4px 10px;
+  border-radius: 8px;
+  padding: 6px 12px;
   cursor: pointer;
-  font-size: 14px;
-  display: flex;
+  font-size: 13px;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  transition: background-color 0.2s;
+  gap: 6px;
+  transition: all 0.2s ease;
 }
 
-.reset-btn:enabled:hover {
-  background-color: #d43827;
+.reset-btn:hover:not(:disabled) {
+  background-color: #e5e7eb;
+  color: #4b5563;
 }
 
 .reset-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
 .history-scroll-container {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 0 20px;
+  padding: 16px;
+  margin-top: 4px;
 }
 
 .history-stats {
-  color: #64748b;
-  font-size: 14px;
+  color: #6b7280;
+  font-size: 13px;
   margin-bottom: 16px;
-  padding: 4px 0;
+  padding: 0 16px;
 }
 
 .history-container {
-  padding: 10px 0;
   min-height: 200px;
   position: relative;
 }
@@ -233,28 +247,29 @@ const scrollToBottom = (force = false) => {
 .loading-state {
   text-align: center;
   padding: 60px 0;
-  color: #64748b;
+  color: #6b7280;
 }
 
 .spinner {
   width: 24px;
   height: 24px;
   margin: 0 auto 12px;
-  border: 3px solid rgba(52, 152, 219, 0.2);
+  border: 3px solid rgba(209, 213, 219, 0.5);
   border-radius: 50%;
-  border-top-color: #3498db;
+  border-top-color: #6b7280;
   animation: spin 1s linear infinite;
 }
 
 .message-item {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   position: relative;
+  padding: 0 16px;
 }
 
 .message-time {
   text-align: center;
   font-size: 12px;
-  color: #94a3b8;
+  color: #9ca3af;
   margin-bottom: 8px;
   font-weight: 500;
 }
@@ -262,58 +277,56 @@ const scrollToBottom = (force = false) => {
 .user-message-container {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .assistant-message-container {
   display: flex;
   justify-content: flex-start;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .message-content-wrapper {
-  display: flex;
+  display: inline-flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
   max-width: 85%;
 }
 
 .message-bubble {
-  padding: 12px 18px;
-  margin: 4px 0;
+  padding: 8px 14px;
   word-break: break-word;
   position: relative;
-  flex: 1;
   transition: box-shadow 0.2s ease;
+  line-height: 1.5;
+  border-radius: 16px;
 }
 
 .message-bubble:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .user-bubble {
-  background-color: #3498db;
-  color: white;
-  border-radius: 18px 18px 4px 18px;
-  box-shadow: 0 2px 4px rgba(52, 152, 219, 0.15);
+  background-color: #4b5563;
+  color: #ffffff;
+  border-radius: 16px 4px 16px 16px;
 }
 
 .assistant-bubble {
   background-color: #ffffff;
-  color: #334155;
-  border: 1px solid #e2e8f0;
-  border-radius: 18px 18px 18px 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  color: #374151;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px 16px 16px 16px;
 }
 
 .message-content {
-  line-height: 1.6;
-  margin-bottom: 6px;
+  line-height: 1.5;
+  margin-bottom: 4px;
   font-size: 15px;
 }
 
 .message-meta {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .user-bubble .message-meta {
@@ -321,24 +334,26 @@ const scrollToBottom = (force = false) => {
 }
 
 .assistant-bubble .message-meta {
-  color: #94a3b8;
+  color: #9ca3af;
 }
 
 .empty-state {
-  color: #64748b;
+  color: #6b7280;
   text-align: center;
   padding: 60px 0;
   font-size: 16px;
-  background-color: rgba(255, 255, 255, 0.5);
+  background-color: #ffffff;
+  border: 1px dashed #e5e7eb;
   border-radius: 12px;
-  margin: 20px 0;
+  margin: 20px 16px;
 }
 
+/* 头像样式调整 - 适配图片 */
 .user-avatar, .assistant-avatar {
   width: 36px;
   height: 36px;
   flex-shrink: 0;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .avatar-image {
@@ -348,18 +363,16 @@ const scrollToBottom = (force = false) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
-  background-color: #e2e8f0;
+  overflow: hidden; /* 确保图片不会超出圆形范围 */
+  background-color: #e2e8f0; /* 图片加载前的占位背景 */
 }
 
-.user-avatar .avatar-image {
-  background-color: #3498db;
-  color: white;
-}
-
-.assistant-avatar .avatar-image {
-  background-color: #2c3e50;
-  color: white;
+/* 头像图片样式 */
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* 保持图片比例并填满容器 */
+  border-radius: 50%; /* 确保图片是圆形 */
 }
 
 .typing-indicator {
@@ -373,7 +386,7 @@ const scrollToBottom = (force = false) => {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background-color: #94a3b8;
+  background-color: #9ca3af;
   animation: wave 1.4s infinite ease-in-out;
 }
 
@@ -382,25 +395,26 @@ const scrollToBottom = (force = false) => {
 
 .scroll-indicator {
   position: absolute;
-  bottom: 80px;
+  bottom: 20px;
   right: 20px;
-  background-color: #3498db;
+  background-color: #4b5563;
   color: white;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   z-index: 10;
   opacity: 0;
   transform: translateY(20px);
   transition: all 0.3s ease;
+  font-size: 13px;
 }
 
 .scroll-indicator:hover {
-  background-color: #2980b9;
+  background-color: #374151;
 }
 
 .scroll-indicator.visible {
@@ -411,9 +425,9 @@ const scrollToBottom = (force = false) => {
 .arrow-down {
   width: 0; 
   height: 0; 
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid white;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid white;
 }
 
 @keyframes spin {
@@ -430,4 +444,4 @@ const scrollToBottom = (force = false) => {
   font-weight: 600;
   color: inherit;
 }
-</style>    
+</style>
