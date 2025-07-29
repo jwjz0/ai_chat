@@ -44,7 +44,7 @@
             <div v-if="msg.input.send" class="user-message-container">
               <div class="message-content-wrapper">
                 <div class="message-bubble user-bubble">
-                  <div class="message-content">{{ msg.input.send }}</div>
+                  <div class="message-content" v-html="formatMessage(msg.input.send)"></div>
                   <div class="message-meta" style="text-align: right;" v-if="msg.usage.input_tokens > 0">
                     输入tokens: {{ msg.usage.input_tokens }}
                   </div>
@@ -63,7 +63,7 @@
                 <div class="message-bubble assistant-bubble">
                   <div class="message-content">
                     <template v-if="msg.isLoading">
-                      {{ msg.output.content }}
+                      <span v-html="formatMessage(msg.output.content)"></span>
                       <span class="typing-indicator">
                         <span></span>
                         <span></span>
@@ -71,7 +71,7 @@
                       </span>
                     </template>
                     <template v-else>
-                      {{ msg.output.content }}
+                      <span v-html="formatMessage(msg.output.content)"></span>
                     </template>
                   </div>
                   <div v-if="!msg.isLoading && msg.usage.output_tokens > 0" class="message-meta">
@@ -113,6 +113,16 @@ const props = defineProps({
 
 const historyContainer = ref(null);
 const autoScroll = ref(true);
+
+// 格式化消息内容（处理换行和加粗）
+const formatMessage = (content) => {
+  if (!content) return '';
+  // 处理**加粗**语法
+  let formatted = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // 处理换行符（将\n\n转为<br><br>，\n转为<br>）
+  formatted = formatted.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+  return formatted;
+};
 
 watch(() => props.messages.length, () => {
   if (historyContainer.value) {
@@ -415,4 +425,9 @@ const scrollToBottom = (force = false) => {
   0%, 60%, 100% { transform: translateY(0); }
   30% { transform: translateY(-5px); }
 }
-</style>
+
+.message-content strong {
+  font-weight: 600;
+  color: inherit;
+}
+</style>    

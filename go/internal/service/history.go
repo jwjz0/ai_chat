@@ -16,7 +16,6 @@ type HistoryService interface {
 	SelectByAssistantID(ctx context.Context, assistantID string) (*model.History, error)
 	ResetByAssistantID(ctx context.Context, assistantID string) error
 	SaveByAssistantID(ctx context.Context, assistantID string, message model.Message) error
-	ProcessMessage(ctx context.Context, assistantID string, input model.Input) (model.Message, error)
 	StreamProcessMessage(ctx context.Context, assistantID string, input model.Input) (<-chan string, <-chan error, model.Usage, error)
 }
 
@@ -92,35 +91,6 @@ func (s *historyServiceImpl) SaveByAssistantID(ctx context.Context, assistantID 
 	return errors.New("助手不存在")
 }
 
-// 非流式处理
-func (s *historyServiceImpl) ProcessMessage(ctx context.Context, assistantID string, input model.Input) (model.Message, error) {
-	assistant, err := s.getAssistant(ctx, assistantID)
-	if err != nil {
-		return model.Message{}, err
-	}
-
-	if input.Prompt == "" {
-		input.Prompt = assistant.Prompt
-	}
-
-	output, usage, err := s.llmService.GenerateReply(ctx, input.Prompt, input.Send)
-	if err != nil {
-		return model.Message{}, fmt.Errorf("生成回复失败: %w", err)
-	}
-
-	message := model.Message{
-		Input:     input,
-		Output:    output,
-		Usage:     usage,
-		GmtCreate: time.Now().Format("2006-01-02 15:04:05"),
-	}
-
-	if err := s.SaveByAssistantID(ctx, assistantID, message); err != nil {
-		return model.Message{}, err
-	}
-	return message, nil
-}
-
 // 流式处理（核心）
 func (s *historyServiceImpl) StreamProcessMessage(ctx context.Context, assistantID string, input model.Input) (<-chan string, <-chan error, model.Usage, error) {
 	contentChan := make(chan string)
@@ -140,23 +110,23 @@ func (s *historyServiceImpl) StreamProcessMessage(ctx context.Context, assistant
 	}
 
 	// 2. 构建消息列表
-	messages := []message{
-		{Role: "system", Content: assistant.Prompt}, // 使用优化后的系统提示
+	messages := []Message{
+		{Role: "system", Content: "你是一个智能助手，会根据用户输入来挑选,如果是一些实时性的问答或者你只要通过调用提供的tools可以提升对话质量的就一定要调用。" + assistant.Prompt}, // 使用优化后的系统提示
 	}
 	// 追加历史消息
 	history, err := s.historyRepo.SelectByAssistantID(ctx, assistantID)
 	if err == nil && history != nil {
 		for _, msg := range history.Messages {
 			if msg.Input.Send != "" {
-				messages = append(messages, message{Role: "user", Content: msg.Input.Send})
+				messages = append(messages, Message{Role: "user", Content: msg.Input.Send})
 			}
 			if msg.Output.Content != "" {
-				messages = append(messages, message{Role: "assistant", Content: msg.Output.Content})
+				messages = append(messages, Message{Role: "assistant", Content: msg.Output.Content})
 			}
 		}
 	}
 	// 追加当前输入
-	messages = append(messages, message{Role: "user", Content: input.Send})
+	messages = append(messages, Message{Role: "user", Content: input.Send})
 
 	// 3. 调用LLM服务
 	llmChan, llmErrChan := s.llmService.StreamGenerateWithSearch(ctx, messages)
