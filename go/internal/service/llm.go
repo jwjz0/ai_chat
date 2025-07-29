@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// 工具定义（通用搜索描述）
+// 工具定义（包含搜索工具和本地时间工具）
 type Tool struct {
 	Type     string   `json:"type"`
 	Function Function `json:"function"`
@@ -48,25 +48,24 @@ type Message struct {
 // 博查搜索相关结构（修正JSON标签，匹配API响应）
 type BochaSearchRequest struct {
 	Query     string `json:"query"`     // 搜索关键词
-	Freshness string `json:"freshness"` // 新鲜度（如"oneDay"、"oneWeek"）
+	Freshness string `json:"freshness"` // 新鲜度（oneDay/oneWeek/oneMonth）
 	Summary   bool   `json:"summary"`   // 是否返回摘要
 	Count     int    `json:"count"`     // 返回结果数量
 }
 
-// 核心修正：调整结构体字段的json标签，与API返回的小写驼峰键名匹配
 type BochaSearchResponse struct {
 	Code  int    `json:"code"`
 	LogID string `json:"log_id"`
 	Msg   string `json:"msg"`
 	Data  struct {
-		WebPages struct { // 对应API的"data.webPages"
-			Value []struct { // 对应API的"data.webPages.value"
+		WebPages struct { // 匹配API的"data.webPages"
+			Value []struct { // 匹配API的"data.webPages.value"
 				Name          string `json:"name"`
 				Url           string `json:"url"`
 				Snippet       string `json:"snippet"`
-				DatePublished string `json:"datePublished"` // 修正字段名，匹配API的"datePublished"
+				DatePublished string `json:"datePublished"`
 			} `json:"value"`
-		} `json:"webPages"` // 关键修正：标签改为小写"webPages"
+		} `json:"webPages"`
 	} `json:"data"`
 }
 
@@ -79,18 +78,27 @@ type LLMService interface {
 
 // LLM服务实现
 type llmServiceImpl struct {
-	apiKey      string
-	baseURL     string
-	modelName   string
-	maxTokens   int
-	timeout     time.Duration
-	client      *http.Client
-	bochaAPIKey string
-	tools       []Tool
+	apiKey          string
+	baseURL         string
+	modelName       string
+	maxTokens       int
+	timeout         time.Duration
+	client          *http.Client
+	bochaAPIKey     string
+	tools           []Tool
+	beijingLocation *time.Location // 北京时间时区
 }
 
-// 初始化函数（通用搜索工具）
+// 初始化函数（工具定义与时区初始化）
 func NewLLMService(apiKey, baseURL, modelName string, maxTokens int, timeoutSec int, bochaAPIKey string) LLMService {
+	// 初始化北京时间时区（优先Asia/Shanghai，失败则用UTC+8兜底）
+	beijingLoc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		beijingLoc = time.FixedZone("CST", 8*3600)
+		log.Printf("加载北京时间时区失败，使用UTC+8替代: %v", err)
+	}
+
+	// 工具列表：搜索工具+本地时间工具
 	tools := []Tool{
 		{
 			Type: "function",
@@ -108,15 +116,28 @@ func NewLLMService(apiKey, baseURL, modelName string, maxTokens int, timeoutSec 
 						"freshness": map[string]interface{}{
 							"type":        "string",
 							"description": "信息新鲜度，可选值：oneDay（1天内）、oneWeek（1周内）、oneMonth（1月内）",
-							"default":     "oneDay",
+							"default":     "oneWeek", // 工具定义默认值：1周内
 						},
 						"count": map[string]interface{}{
 							"type":        "integer",
 							"description": "返回结果数量（最大50）",
-							"default":     5,
+							"default":     10, // 请求默认10条
 						},
 					},
 					"required": []string{"query"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: Function{
+				Name: "get_current_time",
+				Description: "获取当前北京时间，当用户询问“现在几点了”“当前时间”等时间相关问题时使用。" +
+					"无需参数，直接调用即可返回当前北京时间（格式：YYYY-MM-DD HH:MM:SS）。",
+				Parameters: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{}, // 无参数
+					"required":   []string{},               // 无必填参数
 				},
 			},
 		},
@@ -134,8 +155,9 @@ func NewLLMService(apiKey, baseURL, modelName string, maxTokens int, timeoutSec 
 				TLSHandshakeTimeout: 10 * time.Second,
 			},
 		},
-		bochaAPIKey: bochaAPIKey,
-		tools:       tools,
+		bochaAPIKey:     bochaAPIKey,
+		tools:           tools,
+		beijingLocation: beijingLoc,
 	}
 }
 
@@ -199,12 +221,13 @@ func (s *llmServiceImpl) StreamGenerate(ctx context.Context, messages []Message,
 		defer close(contentChan)
 		defer close(errChan)
 
-		// 系统提示：引导LLM处理空结果
+		// 系统提示：引导工具正确使用
 		enhancedMessages := append([]Message{
 			{
 				Role: "system",
-				Content: "若搜索结果为空，请明确告知用户当前未找到相关信息，" +
-					"并建议用户调整关键词或补充更多细节后重试。",
+				Content: "当用户询问时间相关问题（如“现在几点了”），必须使用get_current_time工具；" +
+					"其他实时信息查询使用bocha_search工具；" +
+					"若搜索结果为空，告知用户未找到信息并建议调整关键词。",
 			},
 		}, messages...)
 
@@ -292,9 +315,9 @@ func (s *llmServiceImpl) StreamGenerateWithSearch(ctx context.Context, messages 
 			return
 		}
 
-		log.Printf("检测到%d个工具调用，执行搜索后发起第二次调用", len(toolCalls))
+		log.Printf("检测到%d个工具调用，执行工具后发起第二次调用", len(toolCalls))
 		messages = append(messages, assistantMsg)
-		toolResults := s.executeTools(ctx, toolCalls)
+		toolResults := s.executeTools(ctx, toolCalls) // 执行工具（含搜索和时间工具）
 		messages = append(messages, toolResults...)
 
 		log.Println("开始第二次LLM调用（生成最终回答）")
@@ -388,7 +411,7 @@ func (s *llmServiceImpl) parseToolCalls(streamChan <-chan string, errChan <-chan
 	return toolCalls, assistantMsg, nil
 }
 
-// 执行工具调用
+// 执行工具调用（含搜索和时间工具逻辑）
 func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []Message {
 	var results []Message
 	log.Printf("开始执行%d个工具调用", len(calls))
@@ -396,6 +419,20 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 	for i, call := range calls {
 		log.Printf("执行第%d个工具调用: %s", i+1, call.Function.Name)
 
+		// 处理本地时间工具（无需外部API）
+		if call.Function.Name == "get_current_time" {
+			currentTime := time.Now().In(s.beijingLocation).Format("2006-01-02 15:04:05")
+			resultContent := fmt.Sprintf("当前北京时间: %s", currentTime)
+			results = append(results, Message{
+				Role:       "tool",
+				Content:    resultContent,
+				ToolCallID: call.ID,
+			})
+			log.Println("本地时间工具调用完成，返回当前北京时间")
+			continue
+		}
+
+		// 处理搜索工具
 		if call.Function.Name != "bocha_search" {
 			results = append(results, Message{
 				Role:       "tool",
@@ -405,7 +442,7 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 			continue
 		}
 
-		// 解析参数
+		// 解析搜索参数
 		var params map[string]interface{}
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &params); err != nil {
 			results = append(results, Message{
@@ -426,8 +463,8 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 			continue
 		}
 
-		// 构建搜索请求
-		freshness := "oneDay"
+		// 构建搜索请求（修正：freshness默认值与工具定义一致，使用oneWeek）
+		freshness := "oneWeek" // 与工具定义的default保持一致
 		if f, ok := params["freshness"].(string); ok && f != "" {
 			freshness = f
 		}
@@ -449,7 +486,6 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 		var err error
 		maxRetries := 3
 		for retry := 0; retry < maxRetries; retry++ {
-			// 输出每次请求参数
 			reqJSON, _ := json.Marshal(searchReq)
 			log.Printf("第%d次尝试调用博查API，请求参数: %s", retry+1, string(reqJSON))
 
@@ -459,7 +495,6 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			// 修正：正确判断结果数量（依赖解析后的resp）
 			if len(resp.Data.WebPages.Value) > 0 {
 				log.Printf("第%d次搜索成功，获取到%d条结果", retry+1, len(resp.Data.WebPages.Value))
 				break
@@ -468,7 +503,7 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 			time.Sleep(1 * time.Second)
 		}
 
-		// 处理结果
+		// 处理搜索结果
 		if err != nil {
 			results = append(results, Message{
 				Role:       "tool",
@@ -478,7 +513,6 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 			continue
 		}
 
-		// 输出API原始响应（用于调试）
 		respJSON, _ := json.Marshal(resp)
 		log.Printf("博查API最终响应: %s", string(respJSON))
 
@@ -488,7 +522,7 @@ func (s *llmServiceImpl) executeTools(ctx context.Context, calls []ToolCall) []M
 			Content:    formattedResult,
 			ToolCallID: call.ID,
 		})
-		log.Printf("工具调用完成，获取到%d条结果", len(resp.Data.WebPages.Value))
+		log.Printf("搜索工具调用完成，实际获取到%d条结果（请求count=%d）", len(resp.Data.WebPages.Value), count)
 	}
 	return results
 }
@@ -501,7 +535,6 @@ func (s *llmServiceImpl) callBochaAPI(ctx context.Context, req BochaSearchReques
 		return nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 输出完整请求信息
 	log.Printf("调用博查API，URL: %s，请求体: %s", apiURL, string(reqBytes))
 
 	reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(reqBytes))
@@ -522,7 +555,6 @@ func (s *llmServiceImpl) callBochaAPI(ctx context.Context, req BochaSearchReques
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 
-	// 输出完整响应信息（用于调试）
 	log.Printf("博查API响应状态码: %d，响应体: %s", resp.StatusCode, string(respBody))
 
 	if resp.StatusCode != http.StatusOK {
@@ -541,18 +573,18 @@ func (s *llmServiceImpl) callBochaAPI(ctx context.Context, req BochaSearchReques
 	return &searchResp, nil
 }
 
-// 格式化搜索结果（通用处理）
+// 格式化搜索结果（明确显示实际结果数量）
 func (s *llmServiceImpl) formatSearchResult(resp *BochaSearchResponse) string {
 	var result strings.Builder
+	total := len(resp.Data.WebPages.Value)
 
-	// 无结果提示
-	if len(resp.Data.WebPages.Value) == 0 {
+	if total == 0 {
 		result.WriteString("未找到相关搜索结果，请尝试调整关键词或补充更多细节后重试。")
 		return result.String()
 	}
 
-	// 有结果时正常格式化
-	result.WriteString("以下是搜索结果：\n\n")
+	// 明确告知用户实际返回的结果数量
+	result.WriteString(fmt.Sprintf("共找到%d条相关结果：\n\n", total))
 	for i, item := range resp.Data.WebPages.Value {
 		result.WriteString(fmt.Sprintf("%d. %s\n发布时间: %s\n摘要: %s\n链接: %s\n\n",
 			i+1, item.Name, item.DatePublished, item.Snippet, item.Url))

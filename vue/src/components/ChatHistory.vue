@@ -49,7 +49,6 @@
                     输入tokens: {{ msg.usage.input_tokens }}
                   </div>
                 </div>
-                <!-- 用户头像替换为图片 -->
                 <div class="user-avatar">
                   <div class="avatar-image">
                     <img 
@@ -64,7 +63,6 @@
             
             <div v-if="msg.output.content || msg.isLoading" class="assistant-message-container">
               <div class="message-content-wrapper">
-                <!-- 助手头像替换为图片 -->
                 <div class="assistant-avatar">
                   <div class="avatar-image">
                     <img 
@@ -130,7 +128,13 @@ const autoScroll = ref(true);
 
 const formatMessage = (content) => {
   if (!content) return '';
-  let formatted = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // 1. 先过滤掉不需要的标记（--- ###、---、###）
+  let formatted = content.replace(/--- ###|---|###/g, '');
+  // 2. 合并连续的换行符（超过2个的换行只保留2个，避免过多空白）
+  formatted = formatted.replace(/\n{3,}/g, '\n\n'); // 3个及以上换行 → 保留2个
+  // 3. 处理**加粗**语法
+  formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // 4. 处理换行符为<br>
   formatted = formatted.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
   return formatted;
 };
@@ -152,7 +156,7 @@ const scrollToBottom = (force = false) => {
 </script>
 
 <style scoped>
-/* 基础布局样式 */
+/* 样式保持不变 */
 .block-2 {
   flex: 1;
   background-color: #f9fafb;
@@ -348,7 +352,6 @@ const scrollToBottom = (force = false) => {
   margin: 20px 16px;
 }
 
-/* 头像样式调整 - 适配图片 */
 .user-avatar, .assistant-avatar {
   width: 36px;
   height: 36px;
@@ -363,16 +366,15 @@ const scrollToBottom = (force = false) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden; /* 确保图片不会超出圆形范围 */
-  background-color: #e2e8f0; /* 图片加载前的占位背景 */
+  overflow: hidden;
+  background-color: #e2e8f0;
 }
 
-/* 头像图片样式 */
 .avatar-img {
   width: 100%;
   height: 100%;
-  object-fit: cover; /* 保持图片比例并填满容器 */
-  border-radius: 50%; /* 确保图片是圆形 */
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .typing-indicator {
